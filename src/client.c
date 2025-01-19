@@ -1,121 +1,55 @@
 #include <stdio.h>
-#include <pthread.h>
-#include <unistd.h>
 #include <stdlib.h>
-#include <time.h>
-#include <errno.h>
-#include "tables.h"
+#include <unistd.h>
+#include <string.h>
 #include "globals.h"
 #include "boss.h"
-#include "logging.h"
 
-extern FILE* log_file;
-extern int evacuation;
+void client_function(int group_size) {
+    disable_signal_handling();
+    atexit(cleanup_shared_memory);
 
-void* client_function(void* arg) {
-    int group_size = *(int*)arg;
-    pthread_t thread_id = pthread_self();
-    int waiting_message_printed = 0;
+    char group_name[MAX_GROUP_NAME_SIZE];
+    snprintf(group_name, sizeof(group_name), "Grupa_%d", getpid());
+    printf("[Klient] %s (%d osoby) zgłasza się do szefa.\n", group_name, group_size);
 
-    if (evacuation) {
-        log_event("Wątek %lu: Grupa %d-osobowa opuszcza pizzerię z powodu pożaru.\n",
-                  (unsigned long)thread_id, group_size);
-        free(arg);
-        return NULL;
+    lock_semaphore();
+    if (group_size <= 2) {
+        add_to_priority_queue(&shm_data->queues.small_groups, group_size, group_name, 0);
+    } else {
+        add_to_priority_queue(&shm_data->queues.large_groups, group_size, group_name, 0);
+    }
+    unlock_semaphore();
+
+    int table_id = -1;
+
+    while (table_id == -1) {
+        lock_semaphore();
+        for (int i = 0; i < total_tables; i++) {
+            if (strcmp(shm_data->group_at_table[i], group_name) == 0) {
+                table_id = i;
+                break;
+            }
+        }
+        unlock_semaphore();
+
+        if (table_id == -1) {
+            usleep(500000); // Odczekaj 0.5 sekundy przed kolejną próbą
+        }
     }
 
-    log_event("Wątek %lu: Grupa %d-osobowa wchodzi do pizzerii.\n",
-              (unsigned long)thread_id, group_size);
+    printf("[Klient] %s siada przy stoliku %d (%d-osobowy).\n", group_name, table_id, table_sizes[table_id]);
 
-    boss_function(group_size, thread_id);
 
-    while (1) {
-        if (pthread_mutex_lock(&lock) != 0) {
-            perror("Błąd przy blokowaniu mutexa (pthread_mutex_lock)");
-            free(arg);
-            return NULL;
-        }
+    sleep(rand() % 6 + 5); // Symulacja jedzenia pizzy prze 5-10 sekund
 
-        if (end_of_day || evacuation || fire_signal) {
-            if (pthread_mutex_unlock(&lock) != 0) {
-                perror("Błąd przy odblokowywaniu mutexa (pthread_mutex_unlock)");
-            }
-
-            if (end_of_day) {
-                log_event("Wątek %lu: Niestety lokal został zamknięty zanim grupa %d-osobowa znalazła stolik.\n",
-                          (unsigned long)thread_id, group_size);
-            } else if (evacuation || fire_signal) {
-                log_event("Wątek %lu: Grupa %d-osobowa opuszcza pizzerię z powodu ewakuacji.\n",
-                          (unsigned long)thread_id, group_size);
-            }
-            free(arg);
-            return NULL;
-        }
-
-        int table_id = locate_table_for_group(group_size, thread_id);
-        if (table_id != -1) {
-            if (pthread_mutex_unlock(&lock) != 0) {
-                perror("Błąd przy odblokowywaniu mutexa (pthread_mutex_unlock)");
-                free(arg);
-                return NULL;
-            }
-
-            log_event("Wątek %lu: Grupa %d-osobowa usiadła przy stoliku %d.\n",
-                      (unsigned long)thread_id, group_size, table_id);
-            log_event("Wątek %lu: Grupa %d-osobowa otrzymuje pizzę.\n",
-                      (unsigned long)thread_id, group_size);
-
-            int eating_time = rand() % 10 + 10; // 10-20 sekund
-            for (int i = 0; i < eating_time; i++) {
-                if (fire_signal) {
-                    break;
-                }
-                sleep(1);
-            }
-
-            if (pthread_mutex_lock(&lock) != 0) {
-                perror("Błąd przy blokowaniu mutexa (pthread_mutex_lock)");
-                free(arg);
-                return NULL;
-            }
-            free_table(group_size, table_id, thread_id);
-            log_event("Wątek %lu: Grupa %d-osobowa zwolniła stolik %d%s.\n",
-                      (unsigned long)thread_id, group_size, table_id,
-                      fire_signal ? " z powodu pożaru" : "");
-            if (pthread_cond_broadcast(&fire_alarm) != 0) {
-                perror("Błąd przy rozsyłaniu sygnału warunkowego (pthread_cond_broadcast)");
-                pthread_mutex_unlock(&lock);
-                free(arg);
-                return NULL;
-            }
-            if (pthread_mutex_unlock(&lock) != 0) {
-                perror("Błąd przy odblokowywaniu mutexa (pthread_mutex_unlock)");
-                free(arg);
-                return NULL;
-            }
-
-            break;
-        }
-
-        if (!waiting_message_printed) {
-            log_event("Wątek %lu: Brak dostępnych stolików dla grupy %d-osobowej. Oczekiwanie...\n",
-                      (unsigned long)thread_id, group_size);
-            waiting_message_printed = 1;
-        }
-        if (pthread_mutex_unlock(&lock) != 0) {
-            perror("Błąd przy odblokowywaniu mutexa (pthread_mutex_unlock)");
-            free(arg);
-            return NULL;
-        }
-        usleep(100000); // 100 ms
+    // Zwolnienie stolika po zakończeniu posiłku
+    lock_semaphore();
+    shm_data->table_occupancy[table_id] -= group_size;
+    if (shm_data->table_occupancy[table_id] == 0) {
+        memset(shm_data->group_at_table[table_id], 0, sizeof(shm_data->group_at_table[table_id]));
     }
+    unlock_semaphore();
 
-    // Obsługa sytuacji pożaru, jeśli nie zakończono wcześniej
-    if (fire_signal) {
-        log_event("Wątek %lu: Grupa %d-osobowa opuszcza pizzerię z powodu pożaru.\n",
-                  (unsigned long)thread_id, group_size);
-    }
-
-    free(arg);
-    return NULL;
+    printf("[Klient] %s zwalnia stolik %d i wychodzi.\n", group_name, table_id);
 }

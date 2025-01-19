@@ -1,5 +1,6 @@
+#ifndef CLIENT_H
+#define CLIENT_H
 
-#ifndef PIZZERIA_CLIENT_H
-#define PIZZERIA_CLIENT_H
 void client_function(int group_size);
-#endif //PIZZERIA_CLIENT_H
+
+#endif // CLIENT_H

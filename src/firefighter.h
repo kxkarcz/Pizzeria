@@ -1,9 +1,6 @@
-#ifndef PIZZERIA_FIREFIGHTER_H
-#define PIZZERIA_FIREFIGHTER_H
+#ifndef FIREFIGHTER_H
+#define FIREFIGHTER_H
 
-void* firefighter_function(void* arg);
-void cleanup_and_exit();
-void signal_handler(int signum);
-void setup_signal_handler();
+void firefighter_process();
 
-#endif //PIZZERIA_FIREFIGHTER_H
+#endif // FIREFIGHTER_H

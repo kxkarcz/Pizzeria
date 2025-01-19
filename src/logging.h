@@ -1,8 +1,11 @@
-#ifndef PIZZERIA_LOGGING_H
-#define PIZZERIA_LOGGING_H
+#ifndef LOGGING_H
+#define LOGGING_H
 
-void log_event(const char* format, ...);
-void close_log_file();
-void open_log_file();
+#include <stdio.h>
+#include <stdarg.h>
 
-#endif //PIZZERIA_LOGGING_H
+void log_message(const char* format, ...);
+void close_log();
+void initialize_logging();
+
+#endif // LOGGING_H

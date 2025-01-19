@@ -14,13 +14,16 @@
 volatile int program_terminated = 0;
 
 void handle_signal(int signum) {
+    if (program_terminated) {
+        return;
+    }
+    program_terminated = 1;
     lock_semaphore();
     if (!shm_data->end_of_day) {
         shm_data->end_of_day = 1;
     }
     unlock_semaphore();
 
-    program_terminated = 1;
     cleanup_shared_memory_and_semaphores();
     exit(EXIT_SUCCESS);
 }
@@ -31,7 +34,7 @@ void* boss_thread_function(void* arg) {
 
     while (!shm_data->end_of_day) {
         handle_queue();
-        usleep(500000); // 0.§ sekundy
+        usleep(500000); // 0.5 sekundy
     }
 
     log_message("[Szef] Koniec dnia. Zamykam pizzerię.\n");

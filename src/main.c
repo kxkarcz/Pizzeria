@@ -1,164 +1,111 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <signal.h>
-#include <time.h>
-#include <sys/stat.h>
-#include <stdarg.h>
-#include "tables.h"
 #include "globals.h"
+#include "pizzeria.h"
+#include "client.h"
+#include "tables.h"
+#include "boss.h"
 #include "firefighter.h"
-#include "pizza.h"
-#include "logging.h"
 
-FILE* log_file;
+volatile int program_terminated = 0;
 
-void* client_function(void* arg);
-
-int read_last_day() {
-    FILE* file = fopen("podsumowania/last_day.txt", "r");
-    int last_day = 0;
-    if (file != NULL) {
-        fscanf(file, "%d", &last_day);
-        fclose(file);
+void handle_signal(int signum) {
+    lock_semaphore();
+    if (!shm_data->end_of_day) {
+        shm_data->end_of_day = 1;
     }
-    return last_day;
+    unlock_semaphore();
+
+    program_terminated = 1;
+    cleanup_shared_memory_and_semaphores();
+    exit(EXIT_SUCCESS);
 }
 
-void save_last_day(int day) {
-    struct stat st = {0};
-    if (stat("podsumowania", &st) == -1) {
-        if (mkdir("podsumowania", 0700) == -1) {
-            perror("Błąd przy tworzeniu katalogu (mkdir)");
-            return;
-        }
+// Funkcja wątku szefa
+void* boss_thread_function(void* arg) {
+    printf("[Szef] Rozpoczynam pracę.\n");
+
+    while (!shm_data->end_of_day) {
+        handle_queue();
+        usleep(500000); // 0.§ sekundy
     }
 
-    FILE* file = fopen("podsumowania/last_day.txt", "w");
-    if (file == NULL) {
-        perror("Błąd przy otwieraniu pliku (fopen)");
-        return;
-    }
-    fprintf(file, "%d", day);
-    fclose(file);
-}
-
-void display_and_save_summary(int day) {
-    char filename[100];
-    snprintf(filename, sizeof(filename), "podsumowania/podsumowanie_dnia_%d.txt", day);
-    FILE* file = fopen(filename, "w");
-    if (file == NULL) {
-        perror("Błąd przy otwieraniu pliku (fopen)");
-        return;
-    }
-
-    fprintf(file, "---- Dzień %d Podsumowanie ----\n", day);
-    for (int i = 0; i < 5; i++) {
-        double small_earnings = small_pizza_sales[i] * menu[i].small_price;
-        double large_earnings = large_pizza_sales[i] * menu[i].large_price;
-        double small_costs = small_earnings * 0.7;
-        double large_costs = large_earnings * 0.7;
-        double small_profit = small_earnings * 0.3;
-        double large_profit = large_earnings * 0.3;
-        fprintf(file, "%s:\n", menu[i].name);
-        fprintf(file, "- Mała - %d, Zarobek - %.2f, Koszt - %.2f\n", small_pizza_sales[i], small_profit, small_costs);
-        fprintf(file, "- Duża - %d, Zarobek - %.2f, Koszt - %.2f\n", large_pizza_sales[i], large_profit, large_costs);
-    }
-    fprintf(file, "Całkowity Zarobek: %.2f\n", total_earnings * 0.3);
-    fprintf(file, "Całkowity Koszt: %.2f\n", total_earnings * 0.7);
-
-    fclose(file);
-}
-
-void* end_of_day_timer(void* arg) {
-    sleep(50);
-    end_of_day = 1;
-    log_event("-- KONIEC DNIA, nie przyjmujemy nowych klientów --\n");
+    printf("[Szef] Koniec dnia. Zamykam pizzerię.\n");
     return NULL;
 }
 
-void simulate_day(int day) {
-    log_event("---- Dzień %d ----\n", day);
-    sleep(2);
-
-    pthread_t timer_thread;
-    if (pthread_create(&timer_thread, NULL, end_of_day_timer, NULL) != 0) {
-        perror("Błąd przy tworzeniu wątku timera (pthread_create)");
-        return;
-    }
-    pthread_detach(timer_thread);
-
-    srand(time(NULL));
-    pthread_t client_threads[100];
-    int client_thread_count = 0;
-
-    while (!end_of_day && !evacuation) {
-        int* group_size = malloc(sizeof(int));
-        if (group_size == NULL) {
-            perror("Błąd przy alokacji pamięci (malloc)");
-            break;
-        }
-        *group_size = (rand() % 3) + 1;  // 1-3 osoby
-        if (pthread_create(&client_threads[client_thread_count], NULL, client_function, (void*)group_size) != 0) {
-            perror("Błąd przy tworzeniu wątku klienta (pthread_create)");
-            free(group_size);
-            break;
-        }
-        client_thread_count++;
-        sleep(rand() % 5 + 1); // 1-5 sekund
-    }
-
-    for (int i = 0; i < client_thread_count; i++) {
-        pthread_join(client_threads[i], NULL);
-    }
-
-    display_and_save_summary(day);
-}
-
 int main() {
-    open_log_file();
+    // Rejestracja obsługi sygnałów
+    atexit(cleanup_shared_memory_and_semaphores);
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
 
+    setup_shared_memory_and_semaphores();
+    configure_tables(3, 2, 2, 3);
     initialize_tables();
     initialize_menu();
-    setup_signal_handler();
 
-    if (pthread_cond_init(&fire_alarm, NULL) != 0) {
-        perror("Błąd przy inicjalizacji zmiennej warunkowej (pthread_cond_init)");
-        return EXIT_FAILURE;
+    // Uruchomienie procesu strażaka
+    pid_t firefighter_pid = fork();
+    if (firefighter_pid == 0) {
+        firefighter_process();
+        exit(0);
+    } else if (firefighter_pid < 0) {
+        perror("[Pizzeria] Błąd przy uruchamianiu strażaka");
+        exit(EXIT_FAILURE);
     }
-    if (pthread_mutex_init(&lock, NULL) != 0) {
-        perror("Błąd przy inicjalizacji mutexa (pthread_mutex_init)");
-        return EXIT_FAILURE;
-    }
+    printf("[Pizzeria] Strażak uruchomiony. PID: %d. Wyślij sygnał pożarowy 'kill -USR1 %d'.\n", firefighter_pid, firefighter_pid);
 
-    pthread_t firefighter_thread;
-    if (pthread_create(&firefighter_thread, NULL, firefighter_function, NULL) != 0) {
-        perror("Błąd przy tworzeniu wątku strażaka (pthread_create)");
-        return EXIT_FAILURE;
-    }
+    int current_day = read_last_day() + 1;
+    save_last_day(current_day);
+    printf("Rozpoczynamy dzień %d w pizzerii!\n", current_day);
 
-    int day = read_last_day() + 1;
-    while (1) {
-        fire_signal = 0;
-        end_of_day = 0;
-        evacuation = 0;
-        simulate_day(day);
-        save_last_day(day);
-        day++;
-        sleep(2);
+    pthread_t boss_thread, timer_thread, day_thread;
+
+    // Wątek szefa
+    if (pthread_create(&boss_thread, NULL, boss_thread_function, NULL) != 0) {
+        perror("Błąd przy tworzeniu wątku szefa");
+        exit(EXIT_FAILURE);
     }
 
-    pthread_cond_destroy(&fire_alarm);
-    pthread_mutex_destroy(&lock);
-
-    for (int i = 0; i < TABLE_TYPES; i++) {
-        char sem_name[20];
-        snprintf(sem_name, sizeof(sem_name), "/table_sem_%d", i);
-        sem_close(table_semaphores[i]);
-        sem_unlink(sem_name);
+    // Wątek timera
+    int timer_duration = 10; // Czas dnia w sekundach
+    if (pthread_create(&timer_thread, NULL, end_of_day_timer, &timer_duration) != 0) {
+        perror("Błąd przy tworzeniu wątku timera dnia");
+        exit(EXIT_FAILURE);
     }
 
-    close_log_file();
+    // Wątek symulacji dnia
+    if (pthread_create(&day_thread, NULL, (void *(*)(void *))simulate_day, (void *)(long)current_day) != 0) {
+        perror("Błąd przy tworzeniu wątku dnia");
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_join(day_thread, NULL);
+    pthread_join(boss_thread, NULL);
+    pthread_join(timer_thread, NULL);
+
+    // Zakończenie procesu strażaka
+    if (firefighter_pid > 0) {
+        kill(firefighter_pid, SIGTERM);
+        waitpid(firefighter_pid, NULL, 0);
+    }
+
+    // Zakończenie procesów klientów
+    lock_semaphore();
+    for (int i = 0; i < shm_data->client_count; i++) {
+        pid_t client_pid = shm_data->client_pids[i];
+        if (client_pid > 0) {
+            kill(client_pid, SIGTERM);
+            waitpid(client_pid, NULL, 0);
+        }
+    }
+    unlock_semaphore();
+    display_and_save_summary(current_day);
+    cleanup_shared_memory_and_semaphores();
+    printf("[Pizzeria] Wszystkie procesy zakończone. Dziękujemy za dziś!\n");
     return 0;
 }

@@ -5,9 +5,10 @@
 #include <string.h>
 #include "globals.h"
 #include "boss.h"
+#include "logging.h"
 
 void handle_fire_signal(int signum) {
-    printf("[Klient] Grupa o PID %d otrzymała sygnał pożarowy! Opuszczam lokal.\n", getpid());
+    log_message("[Klient] Grupa o PID %d otrzymała sygnał pożarowy! Opuszczam lokal.\n", getpid());
     exit(0);
 }
 
@@ -31,7 +32,7 @@ void client_function(int group_size) {
 
     lock_semaphore();
     if (!shm_data || sem_removed || shm_data->client_count >= MAX_CLIENTS || shm_data->end_of_day) {
-        printf("[Klient] Grupa %d opuszcza lokal.\n", getpid());
+        log_message("[Klient] Grupa %d opuszcza lokal.\n", getpid());
         unlock_semaphore();
         exit(EXIT_FAILURE);
     }
@@ -45,7 +46,7 @@ void client_function(int group_size) {
 
     lock_semaphore();
     if (shm_data->end_of_day) {
-        printf("[Klient] Grupa %d opuszcza lokal.\n", getpid());
+        log_message("[Klient] Grupa %d opuszcza lokal.\n", getpid());
         unlock_semaphore();
         exit(EXIT_FAILURE);
     }
@@ -56,13 +57,13 @@ void client_function(int group_size) {
         add_to_priority_queue(&shm_data->queues.large_groups, group_size, group_name, 0);
     }
     unlock_semaphore();
-    printf("[Klient] Grupa o PID %d (%d osoby) zgłosiła się do kolejki szefa.\n", getpid(), group_size);
+    log_message("[Klient] Grupa o PID %d (%d osoby) zgłosiła się do kolejki szefa.\n", getpid(), group_size);
 
     int table_assigned = -1;
     while (1) {
         lock_semaphore();
         if (shm_data->end_of_day) {
-            printf("[Klient] Koniec dnia. Grupa o PID %d opuszcza lokal.\n", getpid());
+            log_message("[Klient] Koniec dnia. Grupa o PID %d opuszcza lokal.\n", getpid());
             unlock_semaphore();
             exit(0);
         }
@@ -76,7 +77,7 @@ void client_function(int group_size) {
         unlock_semaphore();
 
         if (table_assigned != -1) {
-            printf("[Klient] Grupa o PID %d usiadła przy stoliku %d.\n", getpid(), table_assigned);
+            log_message("[Klient] Grupa o PID %d usiadła przy stoliku %d.\n", getpid(), table_assigned);
             break;
         }
 
@@ -93,6 +94,6 @@ void client_function(int group_size) {
         }
     }
     unlock_semaphore();
-    printf("[Klient] Grupa o PID %d zwalnia stolik i wychodzi z lokalu.\n", getpid());
+    log_message("[Klient] Grupa o PID %d zwalnia stolik i wychodzi z lokalu.\n", getpid());
     exit(0);
 }

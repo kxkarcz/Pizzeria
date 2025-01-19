@@ -6,13 +6,14 @@
 #include "pizza.h"
 #include "globals.h"
 #include "boss.h"
+#include "logging.h"
 
 #define MAX_QUEUE_SIZE 50
 
 void add_to_priority_queue(PriorityQueue* queue, int group_size, const char* group_name, int time_waited) {
     srand(time(NULL));
     if ((queue->queue_rear + 1) % MAX_QUEUE_SIZE == queue->queue_front) {
-        printf("[Szef] Kolejka jest pełna! %s opuszcza pizzerię.\n", group_name);
+        log_message("[Szef] Kolejka jest pełna! %s opuszcza pizzerię.\n", group_name);
         return;
     }
 
@@ -53,7 +54,7 @@ int find_table_for_group(int group_size, const char* group_name) {
             strncpy(shm_data->group_at_table[i][0], group_name, MAX_GROUP_NAME_SIZE - 1);
             shm_data->group_at_table[i][0][MAX_GROUP_NAME_SIZE - 1] = '\0';
 
-            printf("[Szef] Grupa PID: %d - %d osobowa usiadła przy stoliku %d-%d osobowym.\n",
+            log_message("[Szef] Grupa PID: %d - %d osobowa usiadła przy stoliku %d-%d osobowym.\n",
                    getpid(), group_size, table_id, table_sizes[i]);
             unlock_semaphore();
             return table_id;
@@ -74,14 +75,14 @@ int find_table_for_group(int group_size, const char* group_name) {
             shm_data->group_at_table[i][group_index][MAX_GROUP_NAME_SIZE - 1] = '\0';
             shm_data->group_count_at_table[i]++;
 
-            printf("[Szef] Grupa PID: %d - %d osobowa usiadła przy stoliku %d-%d osobowym razem z grupą/grupami: ",
+            log_message("[Szef] Grupa PID: %d - %d osobowa usiadła przy stoliku %d-%d osobowym razem z grupą/grupami: ",
                    getpid(), group_size, table_id, table_sizes[i]);
 
             for (int j = 0; j < group_index; j++) {
-                printf("%s%s", shm_data->group_at_table[i][j],
+                log_message("%s%s", shm_data->group_at_table[i][j],
                        (j == group_index - 1) ? "" : ", ");
             }
-            printf(".\n");
+            log_message(".\n");
 
             unlock_semaphore();
             return table_id;
@@ -99,13 +100,13 @@ void process_order(int group_size, const char* group_name) {
     select_random_pizzas(group_size, selected_pizzas, selected_sizes);
     double total_cost = calculate_total_cost(selected_pizzas, selected_sizes, group_size);
 
-    printf("[Szef] %s zamawia pizze:\n", group_name);
+    log_message("[Szef] %s zamawia pizze:\n", group_name);
     for (int i = 0; i < group_size; i++) {
-        printf("  - %s (%s) - %.2f zł\n", selected_pizzas[i].name,
+        log_message("  - %s (%s) - %.2f zł\n", selected_pizzas[i].name,
                selected_sizes[i] == 0 ? "mała" : "duża",
                selected_sizes[i] == 0 ? selected_pizzas[i].small_price : selected_pizzas[i].large_price);
     }
-    printf("[Szef] %s płaci: %.2f zł\n", group_name, total_cost);
+    log_message("[Szef] %s płaci: %.2f zł\n", group_name, total_cost);
 
     update_sales_and_earnings(selected_pizzas, selected_sizes, group_size);
 }
@@ -114,7 +115,7 @@ void handle_queue() {
     while (!is_queue_empty(&shm_data->queues.small_groups) || !is_queue_empty(&shm_data->queues.large_groups)) {
         lock_semaphore();
         if (shm_data->end_of_day) {
-            printf("[Szef] Koniec dnia. Przerywam obsługę kolejki.\n");
+            log_message("[Szef] Koniec dnia. Przerywam obsługę kolejki.\n");
             unlock_semaphore();
             break;
         }
@@ -130,7 +131,7 @@ void handle_queue() {
 
         if (table_id != -1) {
             process_order(entry.group_size, entry.group_name);
-            printf("[Szef] Zamówienie dla %s zostało zrealizowane.\n", entry.group_name);
+            log_message("[Szef] Zamówienie dla %s zostało zrealizowane.\n", entry.group_name);
         } else {
             entry.time_waited++;
             add_to_priority_queue(current_queue, entry.group_size, entry.group_name, entry.time_waited);

@@ -9,6 +9,7 @@
 #include "tables.h"
 #include "boss.h"
 #include "firefighter.h"
+#include "logging.h"
 
 volatile int program_terminated = 0;
 
@@ -26,14 +27,14 @@ void handle_signal(int signum) {
 
 // Funkcja wątku szefa
 void* boss_thread_function(void* arg) {
-    printf("[Szef] Rozpoczynam pracę.\n");
+    log_message("[Szef] Rozpoczynam pracę.\n");
 
     while (!shm_data->end_of_day) {
         handle_queue();
         usleep(500000); // 0.§ sekundy
     }
 
-    printf("[Szef] Koniec dnia. Zamykam pizzerię.\n");
+    log_message("[Szef] Koniec dnia. Zamykam pizzerię.\n");
     return NULL;
 }
 
@@ -42,11 +43,12 @@ int main() {
     atexit(cleanup_shared_memory_and_semaphores);
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
-
+    initialize_logging();
     setup_shared_memory_and_semaphores();
     configure_tables(3, 2, 2, 3);
     initialize_tables();
     initialize_menu();
+
 
     // Uruchomienie procesu strażaka
     pid_t firefighter_pid = fork();
@@ -57,11 +59,11 @@ int main() {
         perror("[Pizzeria] Błąd przy uruchamianiu strażaka");
         exit(EXIT_FAILURE);
     }
-    printf("[Pizzeria] Strażak uruchomiony. PID: %d. Wyślij sygnał pożarowy 'kill -USR1 %d'.\n", firefighter_pid, firefighter_pid);
+    log_message("[Pizzeria] Strażak uruchomiony. PID: %d. Wyślij sygnał pożarowy 'kill -USR1 %d'.\n", firefighter_pid, firefighter_pid);
 
     int current_day = read_last_day() + 1;
     save_last_day(current_day);
-    printf("Rozpoczynamy dzień %d w pizzerii!\n", current_day);
+    log_message("Rozpoczynamy dzień %d w pizzerii!\n", current_day);
 
     pthread_t boss_thread, timer_thread, day_thread;
 
@@ -106,6 +108,7 @@ int main() {
     unlock_semaphore();
     display_and_save_summary(current_day);
     cleanup_shared_memory_and_semaphores();
-    printf("[Pizzeria] Wszystkie procesy zakończone. Dziękujemy za dziś!\n");
+    log_message("[Pizzeria] Wszystkie procesy zakończone. Dziękujemy za dziś!\n");
+    close_log();
     return 0;
 }

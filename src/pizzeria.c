@@ -10,6 +10,7 @@
 #include "globals.h"
 #include "pizza.h"
 #include "client.h"
+#include "logging.h"
 
 int read_last_day() {
     int file = open("podsumowania/last_day.txt", O_RDONLY);
@@ -53,7 +54,7 @@ void display_and_save_summary(int day) {
         return;
     }
 
-    printf("---- Dzień %d Podsumowanie ----\n", day);
+    log_message("---- Dzień %d Podsumowanie ----\n", day);
     char buffer[256];
     snprintf(buffer, sizeof(buffer), "---- Dzień %d Podsumowanie ----\n", day);
     write(file, buffer, strlen(buffer));
@@ -66,9 +67,9 @@ void display_and_save_summary(int day) {
         double small_profit = small_earnings * 0.3;
         double large_profit = large_earnings * 0.3;
 
-        printf("%s:\n", menu[i].name);
-        printf("- Mała - %d, Zarobek - %.2f, Koszt - %.2f\n", shm_data->small_pizza_sales[i], small_profit, small_costs);
-        printf("- Duża - %d, Zarobek - %.2f, Koszt - %.2f\n", shm_data->large_pizza_sales[i], large_profit, large_costs);
+        log_message("%s:\n", menu[i].name);
+        log_message("- Mała - %d, Zarobek - %.2f, Koszt - %.2f\n", shm_data->small_pizza_sales[i], small_profit, small_costs);
+        log_message("- Duża - %d, Zarobek - %.2f, Koszt - %.2f\n", shm_data->large_pizza_sales[i], large_profit, large_costs);
 
         snprintf(buffer, sizeof(buffer),
                  "%s:\n- Mała - %d, Zarobek - %.2f, Koszt - %.2f\n- Duża - %d, Zarobek - %.2f, Koszt - %.2f\n",
@@ -79,8 +80,8 @@ void display_and_save_summary(int day) {
 
     double total_profit = shm_data->total_earnings * 0.5;
     double total_costs = shm_data->total_earnings * 0.5;
-    printf("Całkowity Zarobek: %.2f\n", total_profit);
-    printf("Całkowity Koszt: %.2f\n", total_costs);
+    log_message("Całkowity Zarobek: %.2f\n", total_profit);
+    log_message("Całkowity Koszt: %.2f\n", total_costs);
 
     snprintf(buffer, sizeof(buffer), "Całkowity Zarobek: %.2f\nCałkowity Koszt: %.2f\n", total_profit, total_costs);
     write(file, buffer, strlen(buffer));
@@ -90,7 +91,7 @@ void display_and_save_summary(int day) {
 
 void* end_of_day_timer(void* arg) {
     int timer = *(int*)arg;
-    printf("[Pizzeria] Timer końca dnia ustawiony na %d sekund.\n", timer);
+    log_message("[Pizzeria] Timer końca dnia ustawiony na %d sekund.\n", timer);
     while (timer > 0) {
         sleep(1);
         timer--;
@@ -99,13 +100,13 @@ void* end_of_day_timer(void* arg) {
         if (shm_data->evacuation) {
             force_end_day = 1;
             unlock_semaphore();
-            printf("[Pizzeria] Timer końca dnia przerwany z powodu ewakuacji.\n");
+            log_message("[Pizzeria] Timer końca dnia przerwany z powodu ewakuacji.\n");
             pthread_exit(NULL);
         }
         unlock_semaphore();
     }
 
-    printf("[Pizzeria] Koniec dnia, zamykamy pizzerię.\n");
+    log_message("[Pizzeria] Koniec dnia, zamykamy pizzerię.\n");
     lock_semaphore();
     shm_data->end_of_day = 1;
     force_end_day = 1;
@@ -114,12 +115,12 @@ void* end_of_day_timer(void* arg) {
 }
 
 void simulate_day(int day) {
-    printf("---- Dzień %d ----\n", day);
+    log_message("---- Dzień %d ----\n", day);
 
     while (!shm_data->end_of_day) {
         lock_semaphore();
         if (shm_data->end_of_day || shm_data->fire_signal) {
-            printf("[Pizzeria] Dzień zakończony. Przerywam symulację dnia.\n");
+            log_message("[Pizzeria] Dzień zakończony. Przerywam symulację dnia.\n");
             unlock_semaphore();
             break;
         }
@@ -135,13 +136,13 @@ void simulate_day(int day) {
             lock_semaphore();
             if (shm_data->end_of_day || shm_data->fire_signal) {
                 unlock_semaphore();
-                printf("[Klient] Dzień zakończony lub ewakuacja w toku. Grupa %d opuszcza lokal.\n", pid);
+                log_message("[Klient] Dzień zakończony lub ewakuacja w toku. Grupa %d opuszcza lokal.\n", pid);
                 kill(pid, SIGTERM);
                 waitpid(pid, NULL, 0);
                 continue;
             }
             unlock_semaphore();
-            printf("[Pizzeria] Nowa grupa %d-osobowa (PID: %d) wchodzi do pizzerii.\n", group_size, pid);
+            log_message("[Pizzeria] Nowa grupa %d-osobowa (PID: %d) wchodzi do pizzerii.\n", group_size, pid);
         } else {
             perror("[Pizzeria] Błąd przy tworzeniu procesu klienta");
         }
@@ -149,7 +150,7 @@ void simulate_day(int day) {
         usleep(500000);
     }
 
-    printf("[Pizzeria] Koniec symulacji dnia %d.\n", day);
+    log_message("[Pizzeria] Koniec symulacji dnia %d.\n", day);
 }
 
 

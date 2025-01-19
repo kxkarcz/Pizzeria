@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "globals.h"
+#include "logging.h"
 
 int total_tables = 0;
 int table_sizes[MAX_TABLES];
@@ -17,11 +18,11 @@ void configure_tables(int num_1_person, int num_2_person, int num_3_person, int 
     for (int i = 0; i < total_tables; i++) {
         shm_data->table_occupancy[i] = 0;
         memset(shm_data->group_at_table[i], 0, MAX_GROUP_NAME_SIZE);
-        printf("[System] Stolik %d: %d-osobowy\n", i, table_sizes[i]);
+        log_message("[System] Stolik %d: %d-osobowy\n", i, table_sizes[i]);
     }
     unlock_semaphore();
 
-    printf("[System] Skonfigurowano %d stolików.\n", total_tables);
+    log_message("[System] Skonfigurowano %d stolików.\n", total_tables);
 }
 
 
@@ -32,6 +33,6 @@ void initialize_tables() {
         memset(shm_data->group_at_table[i], 0, sizeof(shm_data->group_at_table[i]));
     }
     unlock_semaphore();
-    printf("[System] Stoliki zostały zainicjalizowane.\n");
+    log_message("[System] Stoliki zostały zainicjalizowane.\n");
 }
 

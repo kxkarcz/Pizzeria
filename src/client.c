@@ -1,55 +1,98 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 #include <string.h>
 #include "globals.h"
 #include "boss.h"
 
-void client_function(int group_size) {
-    disable_signal_handling();
-    atexit(cleanup_shared_memory);
+void handle_fire_signal(int signum) {
+    printf("[Klient] Grupa o PID %d otrzymała sygnał pożarowy! Opuszczam lokal.\n", getpid());
+    exit(0);
+}
 
-    char group_name[MAX_GROUP_NAME_SIZE];
-    snprintf(group_name, sizeof(group_name), "Grupa_%d", getpid());
-    printf("[Klient] %s (%d osoby) zgłasza się do szefa.\n", group_name, group_size);
+void cleanup_client_pid() {
+    if (!shm_data || sem_removed) return;
 
     lock_semaphore();
+    for (int i = 0; i < shm_data->client_count; i++) {
+        if (shm_data->client_pids[i] == getpid()) {
+            shm_data->client_pids[i] = shm_data->client_pids[shm_data->client_count - 1];
+            shm_data->client_count--;
+            break;
+        }
+    }
+    unlock_semaphore();
+}
+
+void client_function(int group_size) {
+    signal(SIGUSR1, handle_fire_signal);
+    atexit(cleanup_client_pid);
+
+    lock_semaphore();
+    if (!shm_data || sem_removed || shm_data->client_count >= MAX_CLIENTS || shm_data->end_of_day) {
+        printf("[Klient] Grupa %d opuszcza lokal.\n", getpid());
+        unlock_semaphore();
+        exit(EXIT_FAILURE);
+    }
+
+    shm_data->client_pids[shm_data->client_count] = getpid();
+    shm_data->client_count++;
+    unlock_semaphore();
+
+    char group_name[MAX_GROUP_NAME_SIZE];
+    snprintf(group_name, MAX_GROUP_NAME_SIZE, "Grupa_%d", getpid());
+
+    lock_semaphore();
+    if (shm_data->end_of_day) {
+        printf("[Klient] Grupa %d opuszcza lokal.\n", getpid());
+        unlock_semaphore();
+        exit(EXIT_FAILURE);
+    }
+
     if (group_size <= 2) {
         add_to_priority_queue(&shm_data->queues.small_groups, group_size, group_name, 0);
     } else {
         add_to_priority_queue(&shm_data->queues.large_groups, group_size, group_name, 0);
     }
     unlock_semaphore();
+    printf("[Klient] Grupa o PID %d (%d osoby) zgłosiła się do kolejki szefa.\n", getpid(), group_size);
 
-    int table_id = -1;
-
-    while (table_id == -1) {
+    int table_assigned = -1;
+    while (1) {
         lock_semaphore();
+        if (shm_data->end_of_day) {
+            printf("[Klient] Koniec dnia. Grupa o PID %d opuszcza lokal.\n", getpid());
+            unlock_semaphore();
+            exit(0);
+        }
+
         for (int i = 0; i < total_tables; i++) {
             if (strcmp(shm_data->group_at_table[i], group_name) == 0) {
-                table_id = i;
+                table_assigned = i;
                 break;
             }
         }
         unlock_semaphore();
 
-        if (table_id == -1) {
-            usleep(500000); // Odczekaj 0.5 sekundy przed kolejną próbą
+        if (table_assigned != -1) {
+            printf("[Klient] Grupa o PID %d usiadła przy stoliku %d.\n", getpid(), table_assigned);
+            break;
+        }
+
+        sleep(1);
+    }
+
+    sleep(rand() % 5 + 5); // Klient je pizzę
+
+    lock_semaphore();
+    if (table_assigned != -1) {
+        shm_data->table_occupancy[table_assigned] -= group_size;
+        if (shm_data->table_occupancy[table_assigned] == 0) {
+            memset(shm_data->group_at_table[table_assigned], 0, MAX_GROUP_NAME_SIZE);
         }
     }
-
-    printf("[Klient] %s siada przy stoliku %d (%d-osobowy).\n", group_name, table_id, table_sizes[table_id]);
-
-
-    sleep(rand() % 6 + 5); // Symulacja jedzenia pizzy prze 5-10 sekund
-
-    // Zwolnienie stolika po zakończeniu posiłku
-    lock_semaphore();
-    shm_data->table_occupancy[table_id] -= group_size;
-    if (shm_data->table_occupancy[table_id] == 0) {
-        memset(shm_data->group_at_table[table_id], 0, sizeof(shm_data->group_at_table[table_id]));
-    }
     unlock_semaphore();
-
-    printf("[Klient] %s zwalnia stolik %d i wychodzi.\n", group_name, table_id);
+    printf("[Klient] Grupa o PID %d zwalnia stolik i wychodzi z lokalu.\n", getpid());
+    exit(0);
 }

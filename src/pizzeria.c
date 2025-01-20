@@ -161,7 +161,7 @@ void simulate_day(int day) {
         }
         unlock_semaphore();
 
-        if (can_create_new_process()) {
+        if (can_create_new_process() && !shm_data->end_of_day) {
             int group_size = rand() % 3 + 1;
             pid_t pid = fork();
 

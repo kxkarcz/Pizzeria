@@ -4,7 +4,7 @@
 #include <sys/shm.h>
 #include <sys/sem.h>
 #include <errno.h>
-#include <signal.h> 
+#include <signal.h>
 #include "globals.h"
 #include "logging.h"
 
@@ -102,10 +102,8 @@ void setup_shared_memory_and_semaphores() {
 
     memset(shm_data, 0, sizeof(struct shared_data));
 
-    shm_data->queues.small_groups.queue_front = 0;
-    shm_data->queues.small_groups.queue_rear = 0;
-    shm_data->queues.large_groups.queue_front = 0;
-    shm_data->queues.large_groups.queue_rear = 0;
+    shm_data->queues.queue.queue_front = 0;
+    shm_data->queues.queue.queue_rear = 0;
 
     sem_id = semget(SEM_KEY, 1, IPC_CREAT | 0666);
     if (sem_id == -1) {
@@ -130,12 +128,16 @@ void lock_semaphore() {
     }
 
     struct sembuf sops = {0, -1, 0};
-    if (semop(sem_id, &sops, 1) == -1) {
+    while (semop(sem_id, &sops, 1) == -1) {
+        if (errno == EINTR) {
+            continue; // Jeśli operacja została przerwana, spróbuj ponownie
+        }
         if (errno == EINVAL || errno == EIDRM) {
             sem_removed = 1;
-        } else {
-            perror("[Error] Nieoczekiwany błąd podczas blokowania semafora");
+            return;
         }
+        perror("[Error] Nieoczekiwany błąd podczas blokowania semafora");
+        return;
     }
 }
 
@@ -150,11 +152,15 @@ void unlock_semaphore() {
     }
 
     struct sembuf sops = {0, 1, 0};
-    if (semop(sem_id, &sops, 1) == -1) {
+    while (semop(sem_id, &sops, 1) == -1) {
+        if (errno == EINTR) {
+            continue;
+        }
         if (errno == EINVAL || errno == EIDRM) {
             sem_removed = 1;
-        } else {
-            perror("[Error] Nieoczekiwany błąd podczas odblokowywania semafora");
+            return;
         }
+        perror("[Error] Nieoczekiwany błąd podczas odblokowywania semafora");
+        return;
     }
 }

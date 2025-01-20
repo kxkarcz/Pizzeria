@@ -57,10 +57,8 @@ void client_function(int group_size) {
         exit(EXIT_FAILURE);
     }
 
-    if (group_size <= 2) {
-        add_to_priority_queue(&shm_data->queues.small_groups, group_size, group_name, 0);
-    } else {
-        add_to_priority_queue(&shm_data->queues.large_groups, group_size, group_name, 0);
+    if (group_size <= 3) {
+        add_to_priority_queue(&shm_data->queues.queue, group_size, group_name, 0);
     }
     unlock_semaphore();
     log_message("[Klient] Grupa o PID %d (%d osoby) zgłosiła się do kolejki szefa.\n", getpid(), group_size);

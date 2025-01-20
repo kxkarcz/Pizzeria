@@ -29,8 +29,7 @@ static void handle_fire_signal(int signum) {
     }
 
     // Oczyszczenie kolejek
-    shm_data->queues.small_groups.queue_front = shm_data->queues.small_groups.queue_rear = 0;
-    shm_data->queues.large_groups.queue_front = shm_data->queues.large_groups.queue_rear = 0;
+    shm_data->queues.queue.queue_front = shm_data->queues.queue.queue_rear = 0;
 
     unlock_semaphore();
 }

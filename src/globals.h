@@ -16,8 +16,8 @@
 #define MAX_TABLES 50
 #define MAX_QUEUE_SIZE 50
 #define MAX_GROUP_NAME_SIZE 20
-#define MAX_CLIENTS 300
-#define MAX_PROCESSES 2
+#define MAX_CLIENTS 3000
+#define MAX_PROCESSES 3000
 
 // Struktura reprezentująca grupę oczekującą w kolejce
 typedef struct {
@@ -34,10 +34,8 @@ typedef struct {
     int queue_rear;
 } PriorityQueue;
 
-// Struktura reprezentująca wszystkie kolejki
 typedef struct {
-    PriorityQueue small_groups; // Kolejka dla małych grup (1-2 osoby)
-    PriorityQueue large_groups; // Kolejka dla dużych grup (3-4 osoby)
+    PriorityQueue queue;
 } SharedQueues;
 
 #define MAX_GROUPS_PER_TABLE 10 // Maksymalna liczba grup przy jednym stoliku

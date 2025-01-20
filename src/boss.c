@@ -41,56 +41,43 @@ QueueEntry remove_from_queue(PriorityQueue* queue) {
     return entry;
 }
 
-int find_table_for_group(int group_size, const char* group_name) {
-    lock_semaphore();
+int reserve_table_for_group(int group_size) {
     int table_id = -1;
 
-    // Znajdź pusty stolik
+    lock_semaphore();
+
     for (int i = 0; i < total_tables; i++) {
         if (shm_data->table_occupancy[i] == 0 && table_sizes[i] >= group_size) {
-            table_id = i;
-            shm_data->table_occupancy[i] = group_size;
-            shm_data->group_count_at_table[i] = 1; // Pierwsza grupa przy stoliku
-            strncpy(shm_data->group_at_table[i][0], group_name, MAX_GROUP_NAME_SIZE - 1);
-            shm_data->group_at_table[i][0][MAX_GROUP_NAME_SIZE - 1] = '\0';
-
-            log_message("[Szef] Grupa PID: %d - %d osobowa usiadła przy stoliku %d-%d osobowym.\n",
-                   getpid(), group_size, table_id, table_sizes[i]);
-            unlock_semaphore();
-            return table_id;
+            if (table_id == -1 || table_sizes[i] < table_sizes[table_id]) {
+                table_id = i;
+            }
         }
     }
 
-    // Znajdź stolik, do którego grupa może dołączyć
-    for (int i = 0; i < total_tables; i++) {
-        if (shm_data->table_occupancy[i] > 0 &&
-            shm_data->table_occupancy[i] + group_size <= table_sizes[i] &&
-            shm_data->group_count_at_table[i] < MAX_GROUPS_PER_TABLE) {
-
-            table_id = i;
-            shm_data->table_occupancy[i] += group_size;
-
-            int group_index = shm_data->group_count_at_table[i];
-            strncpy(shm_data->group_at_table[i][group_index], group_name, MAX_GROUP_NAME_SIZE - 1);
-            shm_data->group_at_table[i][group_index][MAX_GROUP_NAME_SIZE - 1] = '\0';
-            shm_data->group_count_at_table[i]++;
-
-            log_message("[Szef] Grupa PID: %d - %d osobowa usiadła przy stoliku %d-%d osobowym razem z grupą/grupami: ",
-                   getpid(), group_size, table_id, table_sizes[i]);
-
-            for (int j = 0; j < group_index; j++) {
-                log_message("%s%s", shm_data->group_at_table[i][j],
-                       (j == group_index - 1) ? "" : ", ");
-            }
-            log_message(".\n");
-
-            unlock_semaphore();
-            return table_id;
-        }
+    if (table_id != -1) {
+        shm_data->table_occupancy[table_id] = -group_size; // Rezerwacja oznaczona wartością ujemną
     }
 
     unlock_semaphore();
     return table_id;
+}
+
+void seat_group(int table_id, int group_size, const char* group_name) {
+    lock_semaphore();
+
+    if (shm_data->table_occupancy[table_id] == -group_size) {
+        shm_data->table_occupancy[table_id] = group_size;
+        shm_data->group_count_at_table[table_id] = 1;
+        strncpy(shm_data->group_at_table[table_id][0], group_name, MAX_GROUP_NAME_SIZE - 1);
+        shm_data->group_at_table[table_id][0][MAX_GROUP_NAME_SIZE - 1] = '\0';
+
+        log_message("[Szef] Grupa PID: %d (%s) - %d osobowa usiadła przy stoliku %d-%d osobowym.\n",
+                    getpid(), group_name, group_size, table_id, table_sizes[table_id]);
+    } else {
+        log_message("[Szef] Błąd: stolik %d nie był poprawnie zarezerwowany.\n", table_id);
+    }
+
+    unlock_semaphore();
 }
 
 void process_order(int group_size, const char* group_name) {
@@ -103,40 +90,48 @@ void process_order(int group_size, const char* group_name) {
     log_message("[Szef] %s zamawia pizze:\n", group_name);
     for (int i = 0; i < group_size; i++) {
         log_message("  - %s (%s) - %.2f zł\n", selected_pizzas[i].name,
-               selected_sizes[i] == 0 ? "mała" : "duża",
-               selected_sizes[i] == 0 ? selected_pizzas[i].small_price : selected_pizzas[i].large_price);
+                    selected_sizes[i] == 0 ? "mała" : "duża",
+                    selected_sizes[i] == 0 ? selected_pizzas[i].small_price : selected_pizzas[i].large_price);
     }
     log_message("[Szef] %s płaci: %.2f zł\n", group_name, total_cost);
 
     update_sales_and_earnings(selected_pizzas, selected_sizes, group_size);
 }
 
+static void handle_queue_entry(QueueEntry entry) {
+    int table_id = reserve_table_for_group(entry.group_size);
+
+    if (table_id == -1) {
+        log_message("[Szef] Brak dostępnych stolików dla %s. Grupa wraca do kolejki.\n", entry.group_name);
+        add_to_priority_queue(&shm_data->queues.queue, entry.group_size, entry.group_name, entry.time_waited + 1);
+        return;
+    }
+
+    log_message("[Klient] Grupa %s (PID %d) składa zamówienie.\n", entry.group_name, getpid());
+    process_order(entry.group_size, entry.group_name);
+    log_message("[Szef] Zamówienie dla %s zostało przyjęte.\n", entry.group_name);
+
+    seat_group(table_id, entry.group_size, entry.group_name);
+
+    log_message("[Szef] Grupę %s ostatecznie posadzono i rozpoczęła konsumpcję.\n", entry.group_name);
+}
+
 void handle_queue() {
-    while (!is_queue_empty(&shm_data->queues.small_groups) || !is_queue_empty(&shm_data->queues.large_groups)) {
+    while (1) {
         lock_semaphore();
         if (shm_data->end_of_day) {
-            log_message("[Szef] Koniec dnia. Przerywam obsługę kolejki.\n");
             unlock_semaphore();
+            log_message("[Szef] Koniec dnia. Przerywam obsługę kolejki.\n");
             break;
         }
         unlock_semaphore();
 
-        PriorityQueue* current_queue = !is_queue_empty(&shm_data->queues.large_groups)
-                                       ? &shm_data->queues.large_groups
-                                       : &shm_data->queues.small_groups;
-
-        QueueEntry entry = remove_from_queue(current_queue);
-
-        int table_id = find_table_for_group(entry.group_size, entry.group_name);
-
-        if (table_id != -1) {
-            process_order(entry.group_size, entry.group_name);
-            log_message("[Szef] Zamówienie dla %s zostało zrealizowane.\n", entry.group_name);
-        } else {
-            entry.time_waited++;
-            add_to_priority_queue(current_queue, entry.group_size, entry.group_name, entry.time_waited);
-            usleep(100000);
+        if (!is_queue_empty(&shm_data->queues.queue)) {
+            QueueEntry entry = remove_from_queue(&shm_data->queues.queue);
+            handle_queue_entry(entry);
         }
+
+        usleep(100000);
     }
 }
 

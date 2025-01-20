@@ -35,8 +35,32 @@ void handle_sigchld(int signum) {
     }
 }
 
+void handle_termination_signal(int signum) {
+    log_message("[Pizzeria] Otrzymano sygnał %d. Kończę pracę.\n", signum);
+    lock_semaphore();
+    shm_data->end_of_day = 1;
+    unlock_semaphore();
+    cleanup_shared_memory_and_semaphores();
+    exit(EXIT_SUCCESS);
+}
+
+void setup_signal_handlers() {
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sigchld;
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP; // Automatyczne wznawianie operacji
+    sigaction(SIGCHLD, &sa, NULL);
+
+    // Obsługa SIGINT i SIGTERM
+    sa.sa_handler = handle_termination_signal;
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+}
+
 int main() {
-    signal(SIGCHLD, handle_sigchld);
+    setup_signal_handlers();
     initialize_logging();
     setup_shared_memory_and_semaphores();
     configure_tables(3, 2, 2, 3);
@@ -68,7 +92,7 @@ int main() {
     }
 
     // Wątek timera
-    int timer_duration = 100; // Czas dnia w sekundach
+    int timer_duration = 10;//28800; // Czas dnia w sekundach
     if (pthread_create(&timer_thread, NULL, end_of_day_timer, &timer_duration) != 0) {
         perror("Błąd przy tworzeniu wątku timera dnia");
         exit(EXIT_FAILURE);

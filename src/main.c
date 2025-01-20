@@ -37,9 +37,29 @@ void handle_sigchld(int signum) {
 
 void handle_termination_signal(int signum) {
     log_message("[Pizzeria] Otrzymano sygnał %d. Kończę pracę.\n", signum);
+
     lock_semaphore();
-    shm_data->end_of_day = 1;
+    shm_data->end_of_day = 1; // Informujemy o końcu dnia
     unlock_semaphore();
+
+    // Zakończenie procesów klientów
+    lock_semaphore();
+    for (int i = 0; i < shm_data->client_count; i++) {
+        pid_t client_pid = shm_data->client_pids[i];
+        if (client_pid > 0) {
+            kill(client_pid, SIGTERM);
+            waitpid(client_pid, NULL, 0);
+            shm_data->client_pids[i] = -1;
+        }
+    }
+    unlock_semaphore();
+
+    // Zakończenie procesu strażaka
+    if (shm_data->fire_signal > 0) {
+        kill(shm_data->fire_signal, SIGTERM);
+        waitpid(shm_data->fire_signal, NULL, 0);
+    }
+
     cleanup_shared_memory_and_semaphores();
     exit(EXIT_SUCCESS);
 }
@@ -63,7 +83,7 @@ int main() {
     setup_signal_handlers();
     initialize_logging();
     setup_shared_memory_and_semaphores();
-    configure_tables(3, 2, 2, 3);
+    configure_tables(10, 10, 10, 10);
     initialize_tables();
     initialize_menu();
 

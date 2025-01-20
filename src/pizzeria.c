@@ -114,6 +114,41 @@ void* end_of_day_timer(void* arg) {
     pthread_exit(NULL);
 }
 
+int can_create_new_process() {
+    lock_semaphore();
+    int active_processes = shm_data ? shm_data->client_count : 0;
+    unlock_semaphore();
+    return active_processes < MAX_PROCESSES;
+}
+void add_client_pid(pid_t pid) {
+    lock_semaphore();
+    if (shm_data != NULL && shm_data->client_count < MAX_CLIENTS) {
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (shm_data->client_pids[i] == -1 || shm_data->client_pids[i] == 0) {
+                shm_data->client_pids[i] = pid;
+                shm_data->client_count++;
+                break;
+            }
+        }
+    }
+    unlock_semaphore();
+}
+
+void remove_client_pid(pid_t pid) {
+    lock_semaphore();
+    if (shm_data != NULL) {
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (shm_data->client_pids[i] == pid) {
+                shm_data->client_pids[i] = -1;
+                shm_data->client_count--;
+                break;
+            }
+        }
+    }
+    unlock_semaphore();
+}
+
+
 void simulate_day(int day) {
     log_message("---- Dzień %d ----\n", day);
 
@@ -126,25 +161,27 @@ void simulate_day(int day) {
         }
         unlock_semaphore();
 
-        int group_size = rand() % 3 + 1;
-        pid_t pid = fork();
+        if (can_create_new_process()) {
+            int group_size = rand() % 3 + 1;
+            pid_t pid = fork();
 
-        if (pid == 0) {
-            client_function(group_size);
-            exit(0);
-        } else if (pid > 0) {
-            lock_semaphore();
-            if (shm_data->end_of_day || shm_data->fire_signal) {
-                unlock_semaphore();
-                log_message("[Klient] Dzień zakończony lub ewakuacja w toku. Grupa %d opuszcza lokal.\n", pid);
-                kill(pid, SIGTERM);
-                waitpid(pid, NULL, 0);
-                continue;
+            if (pid == 0) {
+                client_function(group_size);
+                exit(0);
+            } else if (pid > 0) {
+                add_client_pid(pid);
+                log_message("[Pizzeria] Nowa grupa %d-osobowa (PID: %d) wchodzi do pizzerii.\n", group_size, pid);
+            } else {
+                perror("[Pizzeria] Błąd przy tworzeniu procesu klienta");
             }
-            unlock_semaphore();
-            log_message("[Pizzeria] Nowa grupa %d-osobowa (PID: %d) wchodzi do pizzerii.\n", group_size, pid);
-        } else {
-            perror("[Pizzeria] Błąd przy tworzeniu procesu klienta");
+        }
+
+        // Obsługa zakończonych procesów klientów
+        int status;
+        pid_t child_pid;
+        while ((child_pid = waitpid(-1, &status, WNOHANG)) > 0) {
+            remove_client_pid(child_pid);
+            log_message("[Pizzeria] Proces klienta (PID: %d) zakończył się.\n", child_pid);
         }
 
         usleep(500000);
@@ -152,5 +189,4 @@ void simulate_day(int day) {
 
     log_message("[Pizzeria] Koniec symulacji dnia %d.\n", day);
 }
-
 

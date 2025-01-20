@@ -12,7 +12,7 @@ void handle_fire_signal(int signum) {
     exit(0);
 }
 void client_signal_handler(int signo) {
-    printf("[Klient] Otrzymano sygnał %d. Kończę działanie...\n", signo);
+    log_message("[Klient] Grupa o PID %d otrzymała sygnał %d. Kończę działanie...\n", getpid(), signo);
     exit(0);
 }
 
@@ -38,7 +38,7 @@ void client_function(int group_size) {
 
     lock_semaphore();
     if (!shm_data || sem_removed || shm_data->client_count >= MAX_CLIENTS || shm_data->end_of_day) {
-        log_message("[Klient] Grupa %d opuszcza lokal.\n", getpid());
+        log_message("[Klient] Grupa %d opuszcza lokal z powodu ograniczeń.\n", getpid());
         unlock_semaphore();
         exit(EXIT_FAILURE);
     }
@@ -52,7 +52,7 @@ void client_function(int group_size) {
 
     lock_semaphore();
     if (shm_data->end_of_day) {
-        log_message("[Klient] Grupa %d opuszcza lokal.\n", getpid());
+        log_message("[Klient] Koniec dnia. Grupa %d opuszcza lokal.\n", getpid());
         unlock_semaphore();
         exit(EXIT_FAILURE);
     }
@@ -87,11 +87,9 @@ void client_function(int group_size) {
             break;
         }
 
-        sleep(1);
+        usleep(500000);
     }
-
-    sleep(rand() % 5 + 5); // Klient je pizzę
-
+    sleep(rand() % 5 + 5);
     lock_semaphore();
     if (table_assigned != -1) {
         shm_data->table_occupancy[table_assigned] -= group_size;
@@ -100,6 +98,7 @@ void client_function(int group_size) {
         }
     }
     unlock_semaphore();
+
     log_message("[Klient] Grupa o PID %d zwalnia stolik i wychodzi z lokalu.\n", getpid());
     exit(0);
 }

@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/wait.h>
 #include "globals.h"
 #include "pizzeria.h"
 #include "client.h"
@@ -24,12 +25,18 @@ void* boss_thread_function(void* arg) {
     log_message("[Szef] Koniec dnia. Zamykam pizzerię.\n");
     return NULL;
 }
+void handle_sigchld(int signum) {
+    int status;
+    pid_t pid;
+
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        remove_client_pid(pid);
+        log_message("[Pizzeria] Proces klienta (PID: %d) zakończył się.\n", pid);
+    }
+}
 
 int main() {
-    // Rejestracja obsługi sygnałów
-    atexit(cleanup_shared_memory_and_semaphores);
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+    signal(SIGCHLD, handle_sigchld);
     initialize_logging();
     setup_shared_memory_and_semaphores();
     configure_tables(3, 2, 2, 3);
@@ -61,7 +68,7 @@ int main() {
     }
 
     // Wątek timera
-    int timer_duration = 10; // Czas dnia w sekundach
+    int timer_duration = 100; // Czas dnia w sekundach
     if (pthread_create(&timer_thread, NULL, end_of_day_timer, &timer_duration) != 0) {
         perror("Błąd przy tworzeniu wątku timera dnia");
         exit(EXIT_FAILURE);
@@ -94,6 +101,7 @@ int main() {
     }
     unlock_semaphore();
     display_and_save_summary(current_day);
+    terminate_all_processes();
     cleanup_shared_memory_and_semaphores();
     log_message("[Pizzeria] Wszystkie procesy zakończone. Dziękujemy za dziś!\n");
     close_log();

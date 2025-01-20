@@ -17,6 +17,7 @@
 #define MAX_QUEUE_SIZE 50
 #define MAX_GROUP_NAME_SIZE 20
 #define MAX_CLIENTS 300
+#define MAX_PROCESSES 2
 
 // Struktura reprezentująca grupę oczekującą w kolejce
 typedef struct {
@@ -75,4 +76,5 @@ void unlock_semaphore();
 void cleanup_shared_memory_and_semaphores();
 void handle_signal(int signum);
 void signal_handler(int signo);
+void terminate_all_processes();
 #endif // GLOBALS_H

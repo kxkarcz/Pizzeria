@@ -42,6 +42,7 @@ typedef struct {
 #define MAX_GROUPS_PER_TABLE 10 // Maksymalna liczba grup przy jednym stoliku
 
 typedef struct shared_data {
+    int cleanup_done;
     int small_pizza_sales[5];
     int large_pizza_sales[5];
     double total_earnings;
@@ -67,10 +68,11 @@ extern int table_sizes[MAX_TABLES];
 extern volatile int force_end_day;
 extern volatile int sem_removed;
 extern volatile int memory_removed;
-
+volatile sig_atomic_t cleaning_in_progress;
 void setup_shared_memory_and_semaphores();
 void lock_semaphore();
 void unlock_semaphore();
 void cleanup_shared_memory_and_semaphores();
 void handle_signal(int signum);
+void signal_handler(int signo);
 #endif // GLOBALS_H

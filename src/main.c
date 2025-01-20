@@ -11,22 +11,6 @@
 #include "firefighter.h"
 #include "logging.h"
 
-volatile int program_terminated = 0;
-
-void handle_signal(int signum) {
-    if (program_terminated) {
-        return;
-    }
-    program_terminated = 1;
-    lock_semaphore();
-    if (!shm_data->end_of_day) {
-        shm_data->end_of_day = 1;
-    }
-    unlock_semaphore();
-
-    cleanup_shared_memory_and_semaphores();
-    exit(EXIT_SUCCESS);
-}
 
 // Funkcja wątku szefa
 void* boss_thread_function(void* arg) {
@@ -44,8 +28,8 @@ void* boss_thread_function(void* arg) {
 int main() {
     // Rejestracja obsługi sygnałów
     atexit(cleanup_shared_memory_and_semaphores);
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
     initialize_logging();
     setup_shared_memory_and_semaphores();
     configure_tables(3, 2, 2, 3);

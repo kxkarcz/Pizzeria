@@ -11,6 +11,10 @@ void handle_fire_signal(int signum) {
     log_message("[Klient] Grupa o PID %d otrzymała sygnał pożarowy! Opuszczam lokal.\n", getpid());
     exit(0);
 }
+void client_signal_handler(int signo) {
+    printf("[Klient] Otrzymano sygnał %d. Kończę działanie...\n", signo);
+    exit(0);
+}
 
 void cleanup_client_pid() {
     if (!shm_data || sem_removed) return;
@@ -28,6 +32,8 @@ void cleanup_client_pid() {
 
 void client_function(int group_size) {
     signal(SIGUSR1, handle_fire_signal);
+    signal(SIGTERM, client_signal_handler);
+    signal(SIGINT, client_signal_handler);
     atexit(cleanup_client_pid);
 
     lock_semaphore();

@@ -4,6 +4,7 @@
 #include <sys/shm.h>
 #include <sys/sem.h>
 #include <errno.h>
+#include <signal.h> 
 #include "globals.h"
 
 struct shared_data *shm_data = NULL;
@@ -11,6 +12,68 @@ int sem_id = -1;
 volatile int force_end_day = 0;
 volatile int sem_removed = 0;
 volatile int memory_removed = 0;
+volatile sig_atomic_t cleaning_in_progress = 0;
+
+void cleanup_shared_memory_and_semaphores() {
+    lock_semaphore();
+    if (shm_data != NULL && shm_data->cleanup_done) {
+        unlock_semaphore();
+        return;
+    }
+    if (!memory_removed) {
+        int shm_id = shmget(SHM_KEY, sizeof(struct shared_data), 0666);
+        if (shm_id != -1) {
+            if (shmctl(shm_id, IPC_RMID, NULL) == -1) {
+                perror("Błąd przy usuwaniu pamięci współdzielonej");
+            } else {
+                printf("Pamięć współdzielona usunięta\n");
+                memory_removed = 1;
+            }
+        } else {
+            printf("Pamięć współdzielona już nie istnieje lub nie można jej odnaleźć.\n");
+        }
+    }
+    if (!sem_removed && sem_id != -1) {
+        if (semctl(sem_id, 0, IPC_RMID) == -1) {
+            perror("Błąd przy usuwaniu semaforów");
+        } else {
+            printf("Semafory usunięte\n");
+            sem_removed = 1;
+        }
+    }
+    if (shm_data != NULL) {
+        shm_data->cleanup_done = 1;
+    }
+    unlock_semaphore();
+}
+
+void terminate_all_processes() {
+    if (shm_data != NULL) {
+        for (int i = 0; i < shm_data->client_count; i++) {
+            if (shm_data->client_pids[i] > 0) {
+                printf("[System] Wysyłam SIGTERM do procesu PID: %d\n", shm_data->client_pids[i]);
+                kill(shm_data->client_pids[i], SIGTERM);
+                shm_data->client_pids[i] = -1; // Oznacz jako usunięty
+            }
+        }
+    }
+}
+void remove_pid_from_list(pid_t pid) {
+    if (shm_data != NULL) {
+        for (int i = 0; i < shm_data->client_count; i++) {
+            if (shm_data->client_pids[i] == pid) {
+                shm_data->client_pids[i] = -1; // Oznacz jako usunięty
+                break;
+            }
+        }
+    }
+}
+void signal_handler(int signo) {
+    printf("Otrzymano sygnał: %d, rozpoczynam czyszczenie...\n", signo);
+    terminate_all_processes();
+    cleanup_shared_memory_and_semaphores();
+    exit(0);
+}
 
 void setup_shared_memory_and_semaphores() {
     int shm_id = shmget(SHM_KEY, sizeof(struct shared_data), IPC_CREAT | 0666);
@@ -44,53 +107,13 @@ void setup_shared_memory_and_semaphores() {
     }
 }
 
-void cleanup_shared_memory_and_semaphores() {
-    if (!memory_removed) {
-        if (shm_data != NULL) {
-            if (shmdt(shm_data) == -1) {
-                perror("Błąd przy odłączaniu pamięci współdzielonej");
-            }
-            shm_data = NULL;
-        }
-
-        int shm_id = shmget(SHM_KEY, sizeof(struct shared_data), 0666);
-        if (shm_id != -1) {
-            if (shmctl(shm_id, IPC_RMID, NULL) == -1) {
-                perror("Błąd przy usuwaniu pamięci współdzielonej");
-            } else {
-                memory_removed = 1;
-            }
-        }
-    }
-
-    if (!sem_removed && sem_id != -1) {
-        if (semctl(sem_id, 0, IPC_RMID) == -1) {
-            perror("Błąd przy usuwaniu semaforów");
-        } else {
-            sem_removed = 1;
-        }
-        sem_id = -1;
-    }
-}
-
 void lock_semaphore() {
-
     if (sem_removed) {
         return;
     }
 
     if (sem_id == -1) {
         fprintf(stderr, "[Error] Nieprawidłowy identyfikator semafora (sem_id == -1). Blokowanie przerwane.\n");
-        return;
-    }
-
-    int sem_val = semctl(sem_id, 0, GETVAL);
-    if (sem_val == -1) {
-        if (errno == EINVAL || errno == EIDRM) {
-            sem_removed = 1;
-            return;
-        }
-        perror("[Error] Nie udało się pobrać wartości semafora przed blokowaniem");
         return;
     }
 
@@ -101,9 +124,7 @@ void lock_semaphore() {
         } else {
             perror("[Error] Nieoczekiwany błąd podczas blokowania semafora");
         }
-        return;
     }
-
 }
 
 void unlock_semaphore() {

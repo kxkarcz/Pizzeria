@@ -77,11 +77,6 @@ class PizzeriaSimulation:
         else:
             self.update_console("Nie znaleziono PID strażaka. Nie można wysłać sygnału.")
 
-    def reset_simulation(self):
-        self.update_console("Resetowanie symulacji...")
-        self.stop_simulation()
-        time.sleep(1)
-        self.start_simulation()
 
     def stop_simulation(self):
         if self.process is not None:
@@ -157,15 +152,12 @@ class Application(tk.Tk):
                                  bg=button_bg, highlightthickness=0, bd=0)
         fire_button = tk.Button(self, text="Strażak", command=self.simulation.send_fire_signal,
                                 bg=button_bg, highlightthickness=0, bd=0)
-        reset_button = tk.Button(self, text="Reset", command=self.simulation.reset_simulation,
-                                 bg=button_bg, highlightthickness=0, bd=0)
         stop_button = tk.Button(self, text="Zakończ", command=self.stop_and_quit,
                                 bg=button_bg, highlightthickness=0, bd=0)
 
-        self.canvas.create_window(100, 350, window=start_button)
-        self.canvas.create_window(250, 350, window=fire_button)
-        self.canvas.create_window(400, 350, window=reset_button)
-        self.canvas.create_window(550, 350, window=stop_button)
+        self.canvas.create_window(150, 350, window=start_button)
+        self.canvas.create_window(300, 350, window=fire_button)
+        self.canvas.create_window(450, 350, window=stop_button)
 
     def on_scroll(self, event):
         self.simulation.auto_scroll = False

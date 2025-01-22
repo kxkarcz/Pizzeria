@@ -7,7 +7,7 @@
 #include "boss.h"
 #include "logging.h"
 
-void handle_fire_signal(int signum) {
+void handle_fire_signal() {
     log_message("[Klient] Grupa o PID %d otrzymała sygnał pożarowy! Opuszczam lokal.\n", getpid());
     exit(0);
 }
@@ -38,7 +38,6 @@ void client_function(int group_size) {
 
     lock_semaphore();
     if (!shm_data || sem_removed || shm_data->client_count >= MAX_CLIENTS || shm_data->end_of_day) {
-        log_message("[Klient] Grupa %d opuszcza lokal z powodu ograniczeń.\n", getpid());
         unlock_semaphore();
         exit(EXIT_FAILURE);
     }
@@ -52,47 +51,74 @@ void client_function(int group_size) {
 
     lock_semaphore();
     if (shm_data->end_of_day) {
-        log_message("[Klient] Koniec dnia. Grupa %d opuszcza lokal.\n", getpid());
         unlock_semaphore();
         exit(EXIT_FAILURE);
     }
 
-    if (group_size <= 3) {
-        add_to_priority_queue(&shm_data->queues.queue, group_size, group_name, 0);
-    }
+    add_to_priority_queue(&shm_data->queues.queue, group_size, group_name, 0);
     unlock_semaphore();
-    log_message("[Klient] Grupa o PID %d (%d osoby) zgłosiła się do kolejki szefa.\n", getpid(), group_size);
 
     int table_assigned = -1;
     while (1) {
         lock_semaphore();
         if (shm_data->end_of_day) {
-            log_message("[Klient] Koniec dnia. Grupa o PID %d opuszcza lokal.\n", getpid());
             unlock_semaphore();
             exit(0);
         }
 
         for (int i = 0; i < total_tables; i++) {
-            if (strcmp(shm_data->group_at_table[i], group_name) == 0) {
-                table_assigned = i;
+            for (int j = 0; j < shm_data->group_count_at_table[i]; j++) {
+                if (strcmp(shm_data->group_at_table[i][j], group_name) == 0) {
+                    table_assigned = i;
+                    break;
+                }
+            }
+            if (table_assigned != -1) {
                 break;
             }
         }
         unlock_semaphore();
 
         if (table_assigned != -1) {
-            log_message("[Klient] Grupa o PID %d usiadła przy stoliku %d.\n", getpid(), table_assigned);
+            lock_semaphore();
+            if (shm_data->group_count_at_table[table_assigned] > 1) {
+                log_message("[Klient] Grupa o PID %d usiadła przy stoliku %d. Siedzimy z:\n", getpid(), table_assigned);
+                for (int j = 0; j < shm_data->group_count_at_table[table_assigned]; j++) {
+                    if (strcmp(shm_data->group_at_table[table_assigned][j], group_name) != 0) {
+                        log_message("  - %s\n", shm_data->group_at_table[table_assigned][j]);
+                    }
+                }
+            } else {
+                log_message("[Klient] Grupa o PID %d usiadła przy stoliku %d.\n", getpid(), table_assigned);
+            }
+            unlock_semaphore();
             break;
         }
 
-        usleep(500000);
     }
-    sleep(rand() % 5 + 5);
+
+    // Symulacja jedzenia
+    //sleep(rand() % 5 + 5);
     lock_semaphore();
     if (table_assigned != -1) {
-        shm_data->table_occupancy[table_assigned] -= group_size;
-        if (shm_data->table_occupancy[table_assigned] == 0) {
-            memset(shm_data->group_at_table[table_assigned], 0, MAX_GROUP_NAME_SIZE);
+        for (int i = 0; i < shm_data->group_count_at_table[table_assigned]; i++) {
+            if (strcmp(shm_data->group_at_table[table_assigned][i], group_name) == 0) {
+                shm_data->table_occupancy[table_assigned] -= group_size;
+
+                // Usuwanie grupy z listy
+                for (int k = i; k < shm_data->group_count_at_table[table_assigned] - 1; k++) {
+                    shm_data->group_sizes_at_table[table_assigned][k] = shm_data->group_sizes_at_table[table_assigned][k + 1];
+                    strncpy(shm_data->group_at_table[table_assigned][k], shm_data->group_at_table[table_assigned][k + 1], MAX_GROUP_NAME_SIZE);
+                }
+                shm_data->group_count_at_table[table_assigned]--;
+
+                // Jeśli stolik jest pusty, resetujemy jego status
+                if (shm_data->table_occupancy[table_assigned] == 0) {
+                    memset(shm_data->group_at_table[table_assigned], 0, sizeof(shm_data->group_at_table[table_assigned]));
+                    shm_data->group_count_at_table[table_assigned] = 0;
+                }
+                break;
+            }
         }
     }
     unlock_semaphore();

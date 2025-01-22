@@ -8,49 +8,39 @@ Pizza menu[MAX_PIZZAS];
 int menu_size;
 
 void initialize_menu() {
-    if (strcpy(menu[0].name, "Margharitta") == NULL) {
-        perror("Błąd przy kopiowaniu nazwy pizzy (strcpy)");
-        exit(EXIT_FAILURE);
-    }
+    strncpy(menu[0].name, "Margharitta", sizeof(menu[0].name) - 1);
+    menu[0].name[sizeof(menu[0].name) - 1] = '\0';
     menu[0].small_price = 20.0;
     menu[0].large_price = 30.0;
     menu[0].id = 0;
 
-    if (strcpy(menu[1].name, "Pepperoni") == NULL) {
-        perror("Błąd przy kopiowaniu nazwy pizzy (strcpy)");
-        exit(EXIT_FAILURE);
-    }
+    strncpy(menu[1].name, "Pepperoni", sizeof(menu[1].name) - 1);
+    menu[1].name[sizeof(menu[1].name) - 1] = '\0';
     menu[1].small_price = 25.0;
     menu[1].large_price = 35.0;
     menu[1].id = 1;
 
-    if (strcpy(menu[2].name, "Hawajska") == NULL) {
-        perror("Błąd przy kopiowaniu nazwy pizzy (strcpy)");
-        exit(EXIT_FAILURE);
-    }
+    strncpy(menu[2].name, "Hawajska", sizeof(menu[2].name) - 1);
+    menu[2].name[sizeof(menu[2].name) - 1] = '\0';
     menu[2].small_price = 22.0;
     menu[2].large_price = 32.0;
     menu[2].id = 2;
 
-    if (strcpy(menu[3].name, "Vege") == NULL) {
-        perror("Błąd przy kopiowaniu nazwy pizzy (strcpy)");
-        exit(EXIT_FAILURE);
-    }
+    strncpy(menu[3].name, "Vege", sizeof(menu[3].name) - 1);
+    menu[3].name[sizeof(menu[3].name) - 1] = '\0';
     menu[3].small_price = 18.0;
     menu[3].large_price = 28.0;
     menu[3].id = 3;
 
-    if (strcpy(menu[4].name, "BBQ Chicken") == NULL) {
-        perror("Błąd przy kopiowaniu nazwy pizzy (strcpy)");
-        exit(EXIT_FAILURE);
-    }
+    strncpy(menu[4].name, "BBQ Chicken", sizeof(menu[4].name) - 1);
+    menu[4].name[sizeof(menu[4].name) - 1] = '\0';
     menu[4].small_price = 27.0;
     menu[4].large_price = 37.0;
     menu[4].id = 4;
 
     menu_size = 5;
 
-    srand(time(NULL));
+    srand(time(NULL)); // Jednorazowa inicjalizacja generatora liczb losowych
 }
 
 void select_random_pizzas(int group_size, Pizza* selected_pizzas, int* selected_sizes) {

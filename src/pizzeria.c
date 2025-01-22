@@ -98,7 +98,6 @@ void* end_of_day_timer(void* arg) {
 
         lock_semaphore();
         if (shm_data->evacuation) {
-            force_end_day = 1;
             unlock_semaphore();
             log_message("[Pizzeria] Timer końca dnia przerwany z powodu ewakuacji.\n");
             pthread_exit(NULL);
@@ -109,16 +108,20 @@ void* end_of_day_timer(void* arg) {
     log_message("[Pizzeria] Koniec dnia, zamykamy pizzerię.\n");
     lock_semaphore();
     shm_data->end_of_day = 1;
-    force_end_day = 1;
     unlock_semaphore();
     pthread_exit(NULL);
 }
 
 int can_create_new_process() {
     lock_semaphore();
-    int active_processes = shm_data ? shm_data->client_count : 0;
+    int current_clients = shm_data->client_count;
     unlock_semaphore();
-    return active_processes < MAX_PROCESSES;
+
+    if (current_clients >= MAX_CLIENTS) {
+        return 0;
+    }
+
+    return 1;
 }
 void add_client_pid(pid_t pid) {
     lock_semaphore();
@@ -147,20 +150,32 @@ void remove_client_pid(pid_t pid) {
     }
     unlock_semaphore();
 }
+void handle_terminated_processes() {
+    int status;
+    pid_t child_pid;
+    while ((child_pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        remove_client_pid(child_pid);
+        log_message("[Pizzeria] Proces klienta (PID: %d) zakończył się.\n", child_pid);
+    }
+}
 
 
 void simulate_day(int day) {
+    atexit(handle_terminated_processes);
     log_message("---- Dzień %d ----\n", day);
-
     while (!shm_data->end_of_day) {
         lock_semaphore();
-        if (shm_data->end_of_day || shm_data->fire_signal) {
+        if (shm_data->end_of_day) {
             log_message("[Pizzeria] Dzień zakończony. Przerywam symulację dnia.\n");
             unlock_semaphore();
             break;
         }
         unlock_semaphore();
 
+        // Obsługa zakończonych procesów klientów
+        handle_terminated_processes();
+
+        // Tworzenie nowych klientów
         if (can_create_new_process() && !shm_data->end_of_day) {
             int group_size = rand() % 3 + 1;
             pid_t pid = fork();
@@ -170,23 +185,24 @@ void simulate_day(int day) {
                 exit(0);
             } else if (pid > 0) {
                 add_client_pid(pid);
-                log_message("[Pizzeria] Nowa grupa %d-osobowa (PID: %d) wchodzi do pizzerii.\n", group_size, pid);
             } else {
                 perror("[Pizzeria] Błąd przy tworzeniu procesu klienta");
             }
         }
 
-        // Obsługa zakończonych procesów klientów
-        int status;
-        pid_t child_pid;
-        while ((child_pid = waitpid(-1, &status, WNOHANG)) > 0) {
-            remove_client_pid(child_pid);
-            log_message("[Pizzeria] Proces klienta (PID: %d) zakończył się.\n", child_pid);
-        }
-
         usleep(500000);
     }
 
-    log_message("[Pizzeria] Koniec symulacji dnia %d.\n", day);
+    lock_semaphore();
+    shm_data->end_of_day = 1;
+    unlock_semaphore();
+
+    log_message("[Pizzeria] Czekam na zakończenie wszystkich procesów klientów...\n");
+    while (shm_data->client_count > 0) {
+        handle_terminated_processes();
+    }
+
+    log_message("[Pizzeria] Wszystkie procesy zakończone. Dziękujemy za dziś!\n");
 }
+
 

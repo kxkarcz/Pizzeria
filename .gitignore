@@ -1,0 +1,12 @@
+
+/cmake-build-debug
+CMakeLists.txt
+/build
+/src/.idea
+src/.DS_Store
+src_python/.DS_Store
+src/logs.txt
+/src_python/Simulation/.idea
+/tests/build
+/.idea
+/src_python/Simulation/__pycache__

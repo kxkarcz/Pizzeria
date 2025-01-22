@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
 #include "pizza.h"
 #include "globals.h"
 #include "boss.h"
@@ -33,7 +34,8 @@ int is_queue_empty(PriorityQueue* queue) {
 
 QueueEntry remove_from_queue(PriorityQueue* queue) {
     if (queue->queue_front == queue->queue_rear) {
-        fprintf(stderr, "[Szef] Próba usunięcia grupy z pustej kolejki.\n");
+        errno = EINVAL;
+        perror("[Szef] Próba usunięcia grupy z pustej kolejki");
         exit(EXIT_FAILURE);
     }
     QueueEntry entry = queue->queue[queue->queue_front];
@@ -41,21 +43,58 @@ QueueEntry remove_from_queue(PriorityQueue* queue) {
     return entry;
 }
 
-int reserve_table_for_group(int group_size) {
+int reserve_table_for_group(int group_size, const char* group_name) {
     int table_id = -1;
+    int addable_table_id = -1;
+    int larger_empty_table_id = -1;
 
     lock_semaphore();
 
     for (int i = 0; i < total_tables; i++) {
-        if (shm_data->table_occupancy[i] == 0 && table_sizes[i] >= group_size) {
-            if (table_id == -1 || table_sizes[i] < table_sizes[table_id]) {
-                table_id = i;
+        // Pusty stolik idealnie dopasowany
+        if (shm_data->table_occupancy[i] == 0 && table_sizes[i] == group_size) {
+            table_id = i;
+            break;
+        }
+
+        // Stolik częściowo zajęty, pasujący do grupy
+        if (shm_data->table_occupancy[i] > 0 &&
+            shm_data->table_occupancy[i] + group_size <= table_sizes[i]) {
+            // Sprawdzamy, czy wszystkie grupy przy tym stoliku mają ten sam rozmiar
+            int can_add = 1;
+            for (int j = 0; j < shm_data->group_count_at_table[i]; j++) {
+                if (shm_data->group_sizes_at_table[i][j] != group_size) {
+                    can_add = 0;
+                    break;
+                }
             }
+            if (can_add) {
+                addable_table_id = i;
+            }
+        }
+
+        // Większy pusty stolik
+        if (shm_data->table_occupancy[i] == 0 &&
+            table_sizes[i] > group_size &&
+            larger_empty_table_id == -1) {
+            larger_empty_table_id = i;
         }
     }
 
+    if (table_id == -1) {
+        table_id = addable_table_id;
+    }
+    if (table_id == -1) {
+        table_id = larger_empty_table_id;
+    }
+
+    // Rezerwacja
     if (table_id != -1) {
-        shm_data->table_occupancy[table_id] = -group_size; // Rezerwacja oznaczona wartością ujemną
+        shm_data->table_occupancy[table_id] += group_size;
+        int group_index = shm_data->group_count_at_table[table_id]++;
+        shm_data->group_sizes_at_table[table_id][group_index] = group_size;
+        strncpy(shm_data->group_at_table[table_id][group_index], group_name, MAX_GROUP_NAME_SIZE - 1);
+        shm_data->group_at_table[table_id][group_index][MAX_GROUP_NAME_SIZE - 1] = '\0';
     }
 
     unlock_semaphore();
@@ -65,16 +104,11 @@ int reserve_table_for_group(int group_size) {
 void seat_group(int table_id, int group_size, const char* group_name) {
     lock_semaphore();
 
-    if (shm_data->table_occupancy[table_id] == -group_size) {
-        shm_data->table_occupancy[table_id] = group_size;
-        shm_data->group_count_at_table[table_id] = 1;
-        strncpy(shm_data->group_at_table[table_id][0], group_name, MAX_GROUP_NAME_SIZE - 1);
-        shm_data->group_at_table[table_id][0][MAX_GROUP_NAME_SIZE - 1] = '\0';
-
-        log_message("[Szef] Grupa PID: %d (%s) - %d osobowa usiadła przy stoliku %d-%d osobowym.\n",
-                    getpid(), group_name, group_size, table_id, table_sizes[table_id]);
+    if (table_id != -1) {
+        log_message("[Szef] Grupa %s - %d osobowa została przypisana do stolika %d\n",
+                    group_name, group_size, table_id);
     } else {
-        log_message("[Szef] Błąd: stolik %d nie był poprawnie zarezerwowany.\n", table_id);
+        log_message("[Szef] Błąd: Nie można przypisać grupy %s do żadnego stolika.\n", group_name);
     }
 
     unlock_semaphore();
@@ -99,21 +133,19 @@ void process_order(int group_size, const char* group_name) {
 }
 
 static void handle_queue_entry(QueueEntry entry) {
-    int table_id = reserve_table_for_group(entry.group_size);
+    int table_id = reserve_table_for_group(entry.group_size, entry.group_name);
 
     if (table_id == -1) {
-        log_message("[Szef] Brak dostępnych stolików dla %s. Grupa wraca do kolejki.\n", entry.group_name);
         add_to_priority_queue(&shm_data->queues.queue, entry.group_size, entry.group_name, entry.time_waited + 1);
         return;
     }
 
-    log_message("[Klient] Grupa %s (PID %d) składa zamówienie.\n", entry.group_name, getpid());
+    log_message("[Klient] Grupa %s (PID %d) - %d osobowa składa zamówienie.\n", entry.group_name, getpid(), entry.group_size);
     process_order(entry.group_size, entry.group_name);
     log_message("[Szef] Zamówienie dla %s zostało przyjęte.\n", entry.group_name);
 
     seat_group(table_id, entry.group_size, entry.group_name);
 
-    log_message("[Szef] Grupę %s ostatecznie posadzono i rozpoczęła konsumpcję.\n", entry.group_name);
 }
 
 void handle_queue() {
@@ -130,8 +162,6 @@ void handle_queue() {
             QueueEntry entry = remove_from_queue(&shm_data->queues.queue);
             handle_queue_entry(entry);
         }
-
-        usleep(100000);
     }
 }
 

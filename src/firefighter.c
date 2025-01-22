@@ -4,7 +4,7 @@
 #include "globals.h"
 #include "logging.h"
 
-static void handle_fire_signal(int signum) {
+static void handle_fire_signal() {
     lock_semaphore();
     if (shm_data->fire_signal) {
         log_message("[Strażak] Sygnał pożarowy już został obsłużony. Ignoruję kolejny sygnał.\n");

@@ -16,8 +16,8 @@
 #define MAX_TABLES 50
 #define MAX_QUEUE_SIZE 50
 #define MAX_GROUP_NAME_SIZE 20
-#define MAX_CLIENTS 3000
-#define MAX_PROCESSES 3000
+#define MAX_CLIENTS 100
+#define MAX_GROUPS_PER_TABLE 4
 
 // Struktura reprezentująca grupę oczekującą w kolejce
 typedef struct {
@@ -38,7 +38,7 @@ typedef struct {
     PriorityQueue queue;
 } SharedQueues;
 
-#define MAX_GROUPS_PER_TABLE 10 // Maksymalna liczba grup przy jednym stoliku
+
 
 typedef struct shared_data {
     int cleanup_done;
@@ -52,7 +52,7 @@ typedef struct shared_data {
     int table_occupancy[MAX_TABLES];
     char group_at_table[MAX_TABLES][MAX_GROUPS_PER_TABLE][MAX_GROUP_NAME_SIZE];
     int group_count_at_table[MAX_TABLES];
-
+    int group_sizes_at_table[MAX_TABLES][MAX_GROUPS_PER_TABLE];
     pid_t client_pids[MAX_CLIENTS];
     int client_count;
 
@@ -64,7 +64,6 @@ extern struct shared_data *shm_data;// Wskaźnik do danych współdzielonych
 extern int sem_id;
 extern int total_tables;
 extern int table_sizes[MAX_TABLES];
-extern volatile int force_end_day;
 extern volatile int sem_removed;
 extern volatile int memory_removed;
 volatile sig_atomic_t cleaning_in_progress;
@@ -72,7 +71,5 @@ void setup_shared_memory_and_semaphores();
 void lock_semaphore();
 void unlock_semaphore();
 void cleanup_shared_memory_and_semaphores();
-void handle_signal(int signum);
-void signal_handler(int signo);
-void terminate_all_processes();
+void signal_handler(int signum);
 #endif // GLOBALS_H

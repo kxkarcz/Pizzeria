@@ -15,8 +15,15 @@ volatile int sem_removed = 0;
 volatile int memory_removed = 0;
 volatile sig_atomic_t cleaning_in_progress = 0;
 volatile sig_atomic_t program_terminated = 0;
+volatile sig_atomic_t signal_handling_in_progress = 0;
 
 void cleanup_shared_memory_and_semaphores() {
+    if (cleaning_in_progress) {
+        return;
+    }
+
+    cleaning_in_progress = 1;
+
     if (!memory_removed) {
         if (shm_data != NULL) {
             if (shmdt(shm_data) == -1) {
@@ -47,9 +54,9 @@ void cleanup_shared_memory_and_semaphores() {
     }
 }
 
-
 void terminate_all_processes() {
     lock_semaphore();
+
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (shm_data->client_pids[i] > 0) {
             kill(shm_data->client_pids[i], SIGTERM);
@@ -60,30 +67,29 @@ void terminate_all_processes() {
     shm_data->client_count = 0;
     unlock_semaphore();
 }
-void remove_pid_from_list(pid_t pid) {
-    if (shm_data != NULL) {
-        for (int i = 0; i < shm_data->client_count; i++) {
-            if (shm_data->client_pids[i] == pid) {
-                shm_data->client_pids[i] = -1; // Oznacz jako usunięty
-                break;
-            }
-        }
-    }
-}
 
 void signal_handler(int signum) {
+    if (signal_handling_in_progress) {
+        return;
+    }
+    signal_handling_in_progress = 1;
     if (program_terminated) {
         return;
     }
+
     program_terminated = 1;
+    log_message("[Pizzeria] Otrzymano sygnał %d. Rozpoczynam czyszczenie zasobów...\n", signum);
     lock_semaphore();
-    if (!shm_data->end_of_day) {
+    if (shm_data != NULL && !shm_data->end_of_day) {
         shm_data->end_of_day = 1;
-        log_message("[Pizzeria] Koniec dnia. Symulacja zatrzymana.\n");
     }
     unlock_semaphore();
 
+    terminate_all_processes();
     cleanup_shared_memory_and_semaphores();
+
+    log_message("[Pizzeria] Zasoby wyczyszczone. Kończę pracę.\n");
+    close_log();
     exit(EXIT_SUCCESS);
 }
 
@@ -121,16 +127,16 @@ void lock_semaphore() {
     if (sem_removed) {
         return;
     }
-
     if (sem_id == -1) {
-        fprintf(stderr, "[Error] Nieprawidłowy identyfikator semafora (sem_id == -1). Blokowanie przerwane.\n");
+        errno = EINVAL;
+        perror("[Error] Nieprawidłowy identyfikator semafora (sem_id == -1). Blokowanie przerwane");
         return;
     }
 
     struct sembuf sops = {0, -1, 0};
     while (semop(sem_id, &sops, 1) == -1) {
         if (errno == EINTR) {
-            continue; // Jeśli operacja została przerwana, spróbuj ponownie
+            continue;
         }
         if (errno == EINVAL || errno == EIDRM) {
             sem_removed = 1;
@@ -147,7 +153,8 @@ void unlock_semaphore() {
     }
 
     if (sem_id == -1) {
-        fprintf(stderr, "[Error] Nieprawidłowy identyfikator semafora (sem_id == -1). Odblokowywanie przerwane.\n");
+        errno = EINVAL;
+        perror("[Error] Nieprawidłowy identyfikator semafora (sem_id == -1). Odblokowywanie przerwane");
         return;
     }
 
@@ -164,3 +171,4 @@ void unlock_semaphore() {
         return;
     }
 }
+

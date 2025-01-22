@@ -98,7 +98,7 @@ void client_function(int group_size) {
     }
 
     // Symulacja jedzenia
-    //sleep(rand() % 5 + 5);
+    sleep(rand() % 5 + 5);
     lock_semaphore();
     if (table_assigned != -1) {
         for (int i = 0; i < shm_data->group_count_at_table[table_assigned]; i++) {

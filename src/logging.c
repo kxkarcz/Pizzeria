@@ -1,15 +1,17 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include "logging.h"
 
 #define LOG_FILE "logs.txt"
 
-static FILE* log_file = NULL;
+static int log_file_fd = -1;
 
 void initialize_logging() {
-    log_file = fopen(LOG_FILE, "a");
-    if (!log_file) {
+    log_file_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (log_file_fd == -1) {
         perror("Błąd przy otwieraniu pliku logów");
         exit(EXIT_FAILURE);
     }
@@ -17,8 +19,10 @@ void initialize_logging() {
 
 void log_message(const char* format, ...) {
     va_list args;
+    char buffer[1024];
+    int length;
 
-    if (!log_file) {
+    if (log_file_fd == -1) {
         initialize_logging();
     }
 
@@ -29,15 +33,17 @@ void log_message(const char* format, ...) {
 
     // Logowanie do pliku
     va_start(args, format);
-    vfprintf(log_file, format, args);
+    length = vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    fflush(log_file);
+    if (length > 0) {
+        write(log_file_fd, buffer, length);
+    }
 }
 
 void close_log() {
-    if (log_file) {
-        fclose(log_file);
-        log_file = NULL;
+    if (log_file_fd != -1) {
+        close(log_file_fd);
+        log_file_fd = -1;
     }
 }

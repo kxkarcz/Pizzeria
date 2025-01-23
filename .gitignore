@@ -1,6 +1,5 @@
 
 /cmake-build-debug
-CMakeLists.txt
 /build
 /src/.idea
 src/.DS_Store

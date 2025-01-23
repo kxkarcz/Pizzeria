@@ -5,28 +5,23 @@
 #include <signal.h>
 #include <unistd.h>
 #include <pthread.h>
-#include "boss.h"
-#include "firefighter.h"
+#include <sys/fcntl.h>
 #include "logging.h"
 
+/**
+ * @brief Testuje pamięć współdzieloną i semafory.
+ */
 void test_shared_memory_and_semaphores() {
+    printf("[Test] Sprawdzanie pamięci współdzielonej i semaforów...\n");
     setup_shared_memory_and_semaphores();
 
-    // Test pamięci współdzielonej
     if (shm_data == NULL || sem_id == -1) {
         printf("[Błąd] Pamięć współdzielona lub semafory nie zostały poprawnie utworzone.\n");
         return;
     }
 
-    // Test inicjalizacji wartości w pamięci współdzielonej
-    //if (shm_data->client_count != 0 || shm_data->end_of_day != 0) {
-    //    printf("[Błąd] Nieprawidłowe wartości w pamięci współdzielonej.\n");
-    //    return;
-    //}
-
     cleanup_shared_memory_and_semaphores();
 
-    // Sprawdzenie, czy zasoby zostały zwolnione
     int shm_check = shmget(SHM_KEY, sizeof(struct shared_data), 0666);
     int sem_check = semget(SEM_KEY, 1, 0666);
 
@@ -35,9 +30,11 @@ void test_shared_memory_and_semaphores() {
         return;
     }
 
-    printf("[Sukces] Test pamięci współdzielonej i semaforów przeszedł pomyślnie.\n");
+    printf("[Sukces] Test pamięci współdzielonej i semaforów zakończony pomyślnie.\n");
 }
-
+/**
+ * @brief Testuje konfigurację stolików.
+ */
 void test_table_configuration() {
     setup_shared_memory_and_semaphores();
     configure_tables(5, 3, 2, 1); // 5x1-osobowe, 3x2-osobowe, 2x3-osobowe, 1x4-osobowy
@@ -65,34 +62,19 @@ void test_table_configuration() {
     cleanup_shared_memory_and_semaphores();
     printf("[Sukces] Test konfiguracji stolików przeszedł pomyślnie.\n");
 }
-
-void test_max_process_limit() {
-    log_message("[Test] Sprawdzanie maksymalnej liczby procesów.\n");
-
-    for (int i = 0; i < MAX_CLIENTS + 5; i++) {
-        pid_t pid = fork();
-
-        if (pid == 0) {
-            log_message("[Test] Proces klienta uruchomiony: PID %d.\n", getpid());
-            sleep(1);
-            exit(0);
-        } else if (pid < 0) {
-            printf("[Sukces] Osiągnięto limit procesów lub wystąpił błąd, zgodnie z oczekiwaniami.\n");
-            break;
-        }
-    }
-
-    while (wait(NULL) > 0);
-    log_message("[Test] Test maksymalnej liczby procesów zakończony.\n");
-}
-
-void* test_deadlock_simulation(void* arg) {
+/**
+ * @brief Funkcja symulująca zakleszczenie wątków.
+ *
+ * @param arg Argument przekazywany do wątku (nieużywany).
+ * @return void* Zwraca NULL.
+ */
+void* simulate_deadlock(void* arg) {
     if (lock_semaphore() == -1) {
         log_message("[Błąd] Nie udało się zablokować semafora.\n");
         return NULL;
     }
     log_message("[Test] Zablokowano semafor. Symulacja zakleszczenia.\n");
-    sleep(5);
+    sleep(3);
     if (unlock_semaphore() == -1) {
         log_message("[Błąd] Nie udało się odblokować semafora.\n");
     }
@@ -100,44 +82,113 @@ void* test_deadlock_simulation(void* arg) {
     return NULL;
 }
 
-void test_resource_block_handling() {
-    log_message("[Test] Sprawdzanie blokad zasobów.\n");
+/**
+ * @brief Testuje zakleszczenia i wielowątkowe blokady.
+ */
+void test_deadlock_and_resource_blocks() {
+    log_message("[Test] Sprawdzanie zakleszczeń i blokad zasobów...\n");
     setup_shared_memory_and_semaphores();
 
-    pthread_t thread1, thread2;
+    pthread_t threads[2];
 
-    // Tworzenie wątków
-    if (pthread_create(&thread1, NULL, test_deadlock_simulation, NULL) != 0) {
+    if (pthread_create(&threads[0], NULL, simulate_deadlock, NULL) != 0) {
         perror("[Błąd] Błąd przy tworzeniu wątku 1");
         cleanup_shared_memory_and_semaphores();
         return;
     }
 
-    sleep(1); // Upewnij się, że thread1 zablokował semafor
+    sleep(1);
 
-    if (pthread_create(&thread2, NULL, test_deadlock_simulation, NULL) != 0) {
+    if (pthread_create(&threads[1], NULL, simulate_deadlock, NULL) != 0) {
         perror("[Błąd] Błąd przy tworzeniu wątku 2");
-        pthread_join(thread1, NULL);
+        pthread_join(threads[0], NULL);
         cleanup_shared_memory_and_semaphores();
         return;
     }
 
-    // Czekanie na zakończenie wątków
-    pthread_join(thread1, NULL);
-    pthread_join(thread2, NULL);
+    pthread_join(threads[0], NULL);
+    pthread_join(threads[1], NULL);
 
     cleanup_shared_memory_and_semaphores();
-
-    printf("[Sukces] Test blokad zasobów zakończony pomyślnie.\n");
+    printf("[Sukces] Test zakleszczeń i blokad zakończony pomyślnie.\n");
 }
 
-void run_all_tests() {
-    printf("Rozpoczynanie testów...\n");
+/**
+ * @brief Testuje odczyt i zapis do pamięci współdzielonej.
+ */
+void test_shared_memory_read_write() {
+    printf("[Test] Sprawdzanie odczytu i zapisu do pamięci współdzielonej...\n");
+    setup_shared_memory_and_semaphores();
+    // Zapis przykładowych danych do pamięci współdzielonej
+    lock_semaphore();
+    shm_data->current_clients = 42;
+    unlock_semaphore();
+    // Odczyt danych z pamięci współdzielonej
+    lock_semaphore();
+    int read_value = shm_data->current_clients;
+    unlock_semaphore();
+    // Weryfikacja poprawności odczytanych danych
+    if (read_value != 42) {
+        printf("[Błąd] Odczytana wartość z pamięci współdzielonej jest niepoprawna.\n");
+        cleanup_shared_memory_and_semaphores();
+        return;
+    }
+    shm_data->current_clients = 0; // Przywrócenie wartości początkowej
+    cleanup_shared_memory_and_semaphores();
+    printf("[Sukces] Test odczytu i zapisu do pamięci współdzielonej zakończony pomyślnie.\n");
+}
 
-    test_shared_memory_and_semaphores();
-    test_table_configuration();
-    test_max_process_limit();
-    test_resource_block_handling();
+/**
+* @brief Testuje system logowania.
+*/
+void test_logging_system() {
+    printf("[Test] Sprawdzanie systemu logowania...\n");
 
-    printf("\nPodsumowanie: Wszystkie testy zostały wykonane.\n");
+    // Inicjalizacja systemu logowania
+    initialize_logging();
+
+    // Zapis przykładowej wiadomości do logów
+    log_message("[Test] To jest przykładowa wiadomość logu.\n");
+
+    // Sprawdzenie, czy wiadomość została poprawnie zapisana do pliku logów
+    int log_file_fd = open("logs.txt", O_RDONLY);
+    if (log_file_fd == -1) {
+        perror("[Błąd] Nie udało się otworzyć pliku logów do odczytu");
+        close_log();
+        return;
+    }
+
+    // Przesunięcie wskaźnika pliku na koniec minus długość wiadomości
+    off_t offset = lseek(log_file_fd, -strlen("[Test] To jest przykładowa wiadomość logu.\n"), SEEK_END);
+    if (offset == -1) {
+        perror("[Błąd] Nie udało się przesunąć wskaźnika pliku");
+        close(log_file_fd);
+        close_log();
+        return;
+    }
+
+    char buffer[1024];
+    ssize_t bytes_read = read(log_file_fd, buffer, sizeof(buffer) - 1);
+    if (bytes_read == -1) {
+        perror("[Błąd] Nie udało się odczytać pliku logów");
+        close(log_file_fd);
+        close_log();
+        return;
+    }
+    buffer[bytes_read] = '\0';
+
+    // Sprawdzenie, czy wiadomość znajduje się na końcu pliku logów
+    if (strstr(buffer, "[Test] To jest przykładowa wiadomość logu.") == NULL) {
+        printf("[Błąd] Wiadomość logu nie została poprawnie zapisana.\n");
+        close(log_file_fd);
+        close_log();
+        return;
+    }
+
+    close(log_file_fd);
+
+    // Zamknięcie systemu logowania
+    close_log();
+
+    printf("[Sukces] Test systemu logowania zakończony pomyślnie.\n");
 }

@@ -14,9 +14,9 @@
 #define SHM_KEY 1234
 #define SEM_KEY 5678
 #define MAX_TABLES 50
-#define MAX_QUEUE_SIZE 10
+#define MAX_QUEUE_SIZE 100
 #define MAX_GROUP_NAME_SIZE 20
-#define MAX_CLIENTS 10
+#define MAX_CLIENTS 1000
 #define MAX_GROUPS_PER_TABLE 4
 
 // Struktura reprezentująca grupę oczekującą w kolejce

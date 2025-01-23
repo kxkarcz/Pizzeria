@@ -102,7 +102,7 @@ int main() {
     }
 
     // Wątek timera
-    int timer_duration = 10;
+    int timer_duration = 30;
     static int timer_started = 0;
 
     if (!timer_started) {
@@ -130,10 +130,12 @@ int main() {
         kill(firefighter_pid, SIGTERM);
         waitpid(firefighter_pid, NULL, 0);
     }
+
     if (!shm_data->summary_done) {
         display_and_save_summary(current_day);
         shm_data->summary_done = 1;
     }
+    sleep(1);
     cleanup_shared_memory_and_semaphores();
     log_message("[Pizzeria] Wszystkie procesy zakończone. Dziękujemy za dziś!\n");
     close_log();

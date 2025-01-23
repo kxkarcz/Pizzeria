@@ -4,6 +4,8 @@
 #include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <string.h>
+#include <errno.h>
 #include "globals.h"
 #include "pizzeria.h"
 #include "client.h"
@@ -12,7 +14,6 @@
 #include "firefighter.h"
 #include "logging.h"
 #include "tests.h"
-
 
 // Funkcja wątku szefa
 void* boss_thread_function(void* arg) {
@@ -45,30 +46,38 @@ void* boss_thread_function(void* arg) {
     return NULL;
 }
 
-// Funkcja rejestrująca obsługę sygnałów
-void setup_signal_handlers() {
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = signal_handler;
-    sa.sa_flags = SA_RESTART;
-
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
-    log_message("[Pizzeria] - Aby wysłać SIGINT: kill -SIGINT %d\n", getpid());
-    log_message("[Pizzeria] - Aby wysłać SIGTERM: kill -SIGTERM %d\n", getpid());
+// Obsługa sygnału SIGCHLD do zapobiegania procesom zombie
+void sigchld_handler(int signo) {
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+        // Usuwamy procesy zombie
+    }
 }
 
-// Funkcja główna programu
+void setup_signal_handlers() {
+    struct sigaction sa;
+
+    // Obsługa SIGCHLD
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = sigchld_handler;
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    sigaction(SIGCHLD, &sa, NULL);
+
+    // Obsługa SIGINT i SIGTERM
+    sa.sa_handler = signal_handler;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+
+    log_message("[Pizzeria] Handlery sygnałów zostały poprawnie zarejestrowane.\n");
+}
+
 int main() {
-   // Ustawienie obsługi sygnałów
     setup_signal_handlers();
     initialize_logging();
     setup_shared_memory_and_semaphores();
-    configure_tables(10, 10, 10, 10);
+    configure_tables(0, 0, 0, 5);
     initialize_tables();
     initialize_menu();
 
-    // Uruchomienie procesu strażaka
     pid_t firefighter_pid = fork();
     if (firefighter_pid == 0) {
         firefighter_process();
@@ -77,7 +86,8 @@ int main() {
         perror("[Pizzeria] Błąd przy uruchamianiu strażaka");
         exit(EXIT_FAILURE);
     }
-    log_message("[Pizzeria] Strażak uruchomiony. PID: %d. Wyślij sygnał pożarowy 'kill -USR1 %d'.\n", firefighter_pid, firefighter_pid);
+
+    log_message("[Pizzeria] Strażak uruchomiony. PID: %d.\n", firefighter_pid);
 
     int current_day = read_last_day() + 1;
     save_last_day(current_day);
@@ -92,10 +102,17 @@ int main() {
     }
 
     // Wątek timera
-    int timer_duration = 1000;
-    if (pthread_create(&timer_thread, NULL, end_of_day_timer, &timer_duration) != 0) {
-        perror("Błąd przy tworzeniu wątku timera dnia");
-        exit(EXIT_FAILURE);
+    int timer_duration = 10;
+    static int timer_started = 0;
+
+    if (!timer_started) {
+        timer_started = 1;
+        if (pthread_create(&timer_thread, NULL, end_of_day_timer, &timer_duration) != 0) {
+            perror("Błąd przy tworzeniu wątku timera dnia");
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        log_message("[Pizzeria] Timer dnia już działa, nie tworzę kolejnego.\n");
     }
 
     // Wątek symulacji dnia
@@ -113,21 +130,13 @@ int main() {
         kill(firefighter_pid, SIGTERM);
         waitpid(firefighter_pid, NULL, 0);
     }
-
-    // Zakończenie procesów klientów
-    lock_semaphore();
-    for (int i = 0; i < shm_data->client_count; i++) {
-        pid_t client_pid = shm_data->client_pids[i];
-        if (client_pid > 0) {
-            kill(client_pid, SIGTERM);
-            waitpid(client_pid, NULL, 0);
-        }
+    if (!shm_data->summary_done) {
+        display_and_save_summary(current_day);
+        shm_data->summary_done = 1;
     }
-    unlock_semaphore();
-
-    display_and_save_summary(current_day);
     cleanup_shared_memory_and_semaphores();
     log_message("[Pizzeria] Wszystkie procesy zakończone. Dziękujemy za dziś!\n");
     close_log();
+
     return 0;
 }

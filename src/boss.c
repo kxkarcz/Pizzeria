@@ -12,7 +12,6 @@
 #define MAX_QUEUE_SIZE 50
 
 void add_to_priority_queue(PriorityQueue* queue, int group_size, const char* group_name, int time_waited) {
-    srand(time(NULL));
     if ((queue->queue_rear + 1) % MAX_QUEUE_SIZE == queue->queue_front) {
         log_message("[Szef] Kolejka jest pełna! %s opuszcza pizzerię.\n", group_name);
         return;
@@ -107,6 +106,17 @@ void seat_group(int table_id, int group_size, const char* group_name) {
     if (table_id != -1) {
         log_message("[Szef] Grupa %s - %d osobowa została przypisana do stolika %d\n",
                     group_name, group_size, table_id);
+
+        if (shm_data->group_count_at_table[table_id] > 1) {
+            log_message("[Szef] Stolik %d jest współdzielony z grupami:\n", table_id);
+            for (int i = 0; i < shm_data->group_count_at_table[table_id]; i++) {
+                if (strcmp(shm_data->group_at_table[table_id][i], group_name) != 0) {
+                    log_message("  - %s (%d osobowa)\n",
+                                shm_data->group_at_table[table_id][i],
+                                shm_data->group_sizes_at_table[table_id][i]);
+                }
+            }
+        }
     } else {
         log_message("[Szef] Błąd: Nie można przypisać grupy %s do żadnego stolika.\n", group_name);
     }

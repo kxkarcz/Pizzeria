@@ -5,24 +5,27 @@
 #include <sys/sem.h>
 #include <errno.h>
 #include <signal.h>
+#include <unistd.h>
+#include <time.h>
 #include "globals.h"
 #include "logging.h"
+#include "pizzeria.h"
 
 struct shared_data *shm_data = NULL;
 int sem_id = -1;
-volatile int force_end_day = 0;
 volatile int sem_removed = 0;
 volatile int memory_removed = 0;
 volatile sig_atomic_t cleaning_in_progress = 0;
-volatile sig_atomic_t program_terminated = 0;
-volatile sig_atomic_t signal_handling_in_progress = 0;
 
 void cleanup_shared_memory_and_semaphores() {
     if (cleaning_in_progress) {
         return;
     }
-
     cleaning_in_progress = 1;
+
+    while (shm_data && shm_data->current_clients > 0) {
+        usleep(100000);
+    }
 
     if (!memory_removed) {
         if (shm_data != NULL) {
@@ -37,67 +40,73 @@ void cleanup_shared_memory_and_semaphores() {
             if (shmctl(shm_id, IPC_RMID, NULL) == -1) {
                 perror("Błąd przy usuwaniu pamięci współdzielonej");
             } else {
-                log_message("[System] Pamięć współdzielona została usunięta.\n");
                 memory_removed = 1;
             }
+        } else if (errno == ENOENT) {
+            memory_removed = 1;
         }
     }
 
     if (!sem_removed && sem_id != -1) {
         if (semctl(sem_id, 0, IPC_RMID) == -1) {
-            perror("Błąd przy usuwaniu semaforów");
+            if (errno != EINVAL) {
+                perror("Błąd przy usuwaniu semaforów");
+            }
         } else {
-            log_message("[System] Semafory zostały usunięte.\n");
             sem_removed = 1;
         }
         sem_id = -1;
     }
 }
 
-void terminate_all_processes() {
-    lock_semaphore();
-
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (shm_data->client_pids[i] > 0) {
-            kill(shm_data->client_pids[i], SIGTERM);
-            waitpid(shm_data->client_pids[i], NULL, 0);
-            shm_data->client_pids[i] = -1;
-        }
-    }
-    shm_data->client_count = 0;
-    unlock_semaphore();
-}
-
-void signal_handler(int signum) {
-    if (signal_handling_in_progress) {
-        return;
-    }
-    signal_handling_in_progress = 1;
-    if (program_terminated) {
+void signal_handler(int signo) {
+    if (lock_semaphore() == -1) {
+        perror("[ERROR] Nie udało się zablokować semafora");
         return;
     }
 
-    program_terminated = 1;
-    log_message("[Pizzeria] Otrzymano sygnał %d. Rozpoczynam czyszczenie zasobów...\n", signum);
-    lock_semaphore();
-    if (shm_data != NULL && !shm_data->end_of_day) {
+    if (signo == SIGINT || signo == SIGTERM) {
+        log_message("[Pizzeria] Otrzymano sygnał %s. Kończenie programu...\n",
+                    signo == SIGINT ? "SIGINT" : "SIGTERM");
         shm_data->end_of_day = 1;
     }
-    unlock_semaphore();
 
-    terminate_all_processes();
+    if (unlock_semaphore() == -1) {
+        perror("[ERROR] Nie udało się odblokować semafora");
+    }
+
+    while (wait(NULL) > 0);
+
+    if (!shm_data->summary_done) {
+        int current_day = read_last_day() + 1;
+        display_and_save_summary(current_day);
+        shm_data->summary_done = 1;
+    }
     cleanup_shared_memory_and_semaphores();
-
-    log_message("[Pizzeria] Zasoby wyczyszczone. Kończę pracę.\n");
-    close_log();
-    exit(EXIT_SUCCESS);
+    exit(0);
 }
 
 void setup_shared_memory_and_semaphores() {
-    int shm_id = shmget(SHM_KEY, sizeof(struct shared_data), IPC_CREAT | 0666);
+    int shm_id = shmget(SHM_KEY, sizeof(struct shared_data), IPC_CREAT | IPC_EXCL | 0666);
     if (shm_id == -1) {
-        perror("Błąd przy tworzeniu pamięci współdzielonej");
-        exit(EXIT_FAILURE);
+        if (errno == EEXIST) {
+            shm_id = shmget(SHM_KEY, sizeof(struct shared_data), 0666);
+            if (shm_id != -1) {
+                if (shmctl(shm_id, IPC_RMID, NULL) == -1) {
+                    perror("Błąd przy usuwaniu istniejącej pamięci współdzielonej");
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            shm_id = shmget(SHM_KEY, sizeof(struct shared_data), IPC_CREAT | 0666);
+            if (shm_id == -1) {
+                perror("Błąd przy ponownym tworzeniu pamięci współdzielonej");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            perror("Błąd przy tworzeniu pamięci współdzielonej");
+            exit(EXIT_FAILURE);
+        }
     }
 
     shm_data = (struct shared_data *)shmat(shm_id, NULL, 0);
@@ -107,14 +116,31 @@ void setup_shared_memory_and_semaphores() {
     }
 
     memset(shm_data, 0, sizeof(struct shared_data));
+    memset(shm_data->client_pids, 0, sizeof(shm_data->client_pids));
+    shm_data->end_of_day = 0;
+    shm_data->current_clients = 0;
+    shm_data->summary_done = 0;
 
-    shm_data->queues.queue.queue_front = 0;
-    shm_data->queues.queue.queue_rear = 0;
-
-    sem_id = semget(SEM_KEY, 1, IPC_CREAT | 0666);
+    sem_id = semget(SEM_KEY, 1, IPC_CREAT | IPC_EXCL | 0666);
     if (sem_id == -1) {
-        perror("Błąd przy tworzeniu semaforów");
-        exit(EXIT_FAILURE);
+        if (errno == EEXIST) {
+            sem_id = semget(SEM_KEY, 1, 0666);
+            if (sem_id != -1) {
+                if (semctl(sem_id, 0, IPC_RMID) == -1) {
+                    perror("Błąd przy usuwaniu istniejących semaforów");
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            sem_id = semget(SEM_KEY, 1, IPC_CREAT | 0666);
+            if (sem_id == -1) {
+                perror("Błąd przy ponownym tworzeniu semaforów");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            perror("Błąd przy tworzeniu semaforów");
+            exit(EXIT_FAILURE);
+        }
     }
 
     if (semctl(sem_id, 0, SETVAL, 1) == -1) {
@@ -123,39 +149,53 @@ void setup_shared_memory_and_semaphores() {
     }
 }
 
-void lock_semaphore() {
+int lock_semaphore() {
     if (sem_removed) {
-        return;
+        log_message("[ERROR] Semafor został usunięty.\n");
+        return -1;
     }
+
     if (sem_id == -1) {
-        errno = EINVAL;
-        perror("[Error] Nieprawidłowy identyfikator semafora (sem_id == -1). Blokowanie przerwane");
-        return;
+        log_message("[ERROR] Semafor nie jest dostępny.\n");
+        return -1;
     }
 
     struct sembuf sops = {0, -1, 0};
+    int max_attempts = 10;
+    int attempts = 0;
+
     while (semop(sem_id, &sops, 1) == -1) {
         if (errno == EINTR) {
             continue;
         }
         if (errno == EINVAL || errno == EIDRM) {
             sem_removed = 1;
-            return;
+            log_message("[ERROR] Semafor został usunięty lub jest nieważny.\n");
+            return -1;
         }
-        perror("[Error] Nieoczekiwany błąd podczas blokowania semafora");
-        return;
+
+        attempts++;
+        log_message("[ERROR] Nie udało się zablokować semafora. Próba %d.\n", attempts);
+        if (attempts >= max_attempts) {
+            errno = ETIMEDOUT;
+            return -1;
+        }
+        struct timespec ts = {0, 100000000}; // 100 ms
+        nanosleep(&ts, NULL);
     }
+
+    return 0;
 }
 
-void unlock_semaphore() {
+int unlock_semaphore() {
     if (sem_removed) {
-        return;
+        log_message("[ERROR] Próba odblokowania usuniętego semafora.\n");
+        return -1;
     }
 
     if (sem_id == -1) {
-        errno = EINVAL;
-        perror("[Error] Nieprawidłowy identyfikator semafora (sem_id == -1). Odblokowywanie przerwane");
-        return;
+        log_message("[ERROR] Semafor nie jest dostępny.\n");
+        return -1;
     }
 
     struct sembuf sops = {0, 1, 0};
@@ -165,10 +205,10 @@ void unlock_semaphore() {
         }
         if (errno == EINVAL || errno == EIDRM) {
             sem_removed = 1;
-            return;
+            log_message("[ERROR] Semafor został usunięty lub jest nieważny podczas odblokowywania.\n");
+            return -1;
         }
-        perror("[Error] Nieoczekiwany błąd podczas odblokowywania semafora");
-        return;
     }
-}
 
+    return 0;
+}

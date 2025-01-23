@@ -14,9 +14,9 @@
 #define SHM_KEY 1234
 #define SEM_KEY 5678
 #define MAX_TABLES 50
-#define MAX_QUEUE_SIZE 50
+#define MAX_QUEUE_SIZE 10
 #define MAX_GROUP_NAME_SIZE 20
-#define MAX_CLIENTS 100
+#define MAX_CLIENTS 10
 #define MAX_GROUPS_PER_TABLE 4
 
 // Struktura reprezentująca grupę oczekującą w kolejce
@@ -38,8 +38,6 @@ typedef struct {
     PriorityQueue queue;
 } SharedQueues;
 
-
-
 typedef struct shared_data {
     int cleanup_done;
     int small_pizza_sales[5];
@@ -48,19 +46,18 @@ typedef struct shared_data {
     int fire_signal;
     int end_of_day;
     int evacuation;
-
+    int summary_done;
     int table_occupancy[MAX_TABLES];
     char group_at_table[MAX_TABLES][MAX_GROUPS_PER_TABLE][MAX_GROUP_NAME_SIZE];
     int group_count_at_table[MAX_TABLES];
     int group_sizes_at_table[MAX_TABLES][MAX_GROUPS_PER_TABLE];
+    int current_clients;
     pid_t client_pids[MAX_CLIENTS];
-    int client_count;
-
     SharedQueues queues; // Kolejki priorytetowe
 } shared_data;
 
 // Deklaracje zmiennych globalnych
-extern struct shared_data *shm_data;// Wskaźnik do danych współdzielonych
+extern struct shared_data *shm_data; // Wskaźnik do danych współdzielonych
 extern int sem_id;
 extern int total_tables;
 extern int table_sizes[MAX_TABLES];
@@ -68,8 +65,9 @@ extern volatile int sem_removed;
 extern volatile int memory_removed;
 volatile sig_atomic_t cleaning_in_progress;
 void setup_shared_memory_and_semaphores();
-void lock_semaphore();
-void unlock_semaphore();
+int lock_semaphore();
+int unlock_semaphore();
 void cleanup_shared_memory_and_semaphores();
 void signal_handler(int signum);
+
 #endif // GLOBALS_H

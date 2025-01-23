@@ -13,6 +13,11 @@
 #include "client.h"
 #include "logging.h"
 
+/**
+ * @brief Odczytuje numer ostatniego dnia z pliku.
+ *
+ * @return int Numer ostatniego dnia, 0 jeśli plik nie istnieje.
+ */
 int read_last_day() {
     int file = open("podsumowania/last_day.txt", O_RDONLY);
     int last_day = 0;
@@ -27,6 +32,11 @@ int read_last_day() {
     return last_day;
 }
 
+/**
+ * @brief Zapisuje numer bieżącego dnia do pliku.
+ *
+ * @param day Numer dnia do zapisania.
+ */
 void save_last_day(int day) {
     struct stat st = {0};
     if (stat("podsumowania", &st) == -1) {
@@ -46,6 +56,11 @@ void save_last_day(int day) {
     close(file);
 }
 
+/**
+ * @brief Wyświetla i zapisuje podsumowanie dnia.
+ *
+ * @param day Numer dnia.
+ */
 void display_and_save_summary(int day) {
     char filename[100];
     snprintf(filename, sizeof(filename), "podsumowania/podsumowanie_dnia_%d.txt", day);
@@ -90,6 +105,12 @@ void display_and_save_summary(int day) {
     close(file);
 }
 
+/**
+ * @brief Wątek odpowiadający za timer końca dnia.
+ *
+ * @param arg Czas działania timera w sekundach.
+ * @return void* Zwraca NULL po zakończeniu działania.
+ */
 void* end_of_day_timer(void* arg) {
     int timer = *(int*)arg;
     log_message("[Pizzeria] Timer końca dnia ustawiony na %d sekund.\n", timer);
@@ -115,6 +136,9 @@ void* end_of_day_timer(void* arg) {
     pthread_exit(NULL);
 }
 
+/**
+ * @brief Obsługuje procesy klientów, które zakończyły działanie.
+ */
 void handle_terminated_processes() {
     int status;
     pid_t child_pid;
@@ -132,6 +156,12 @@ void handle_terminated_processes() {
         unlock_semaphore();
     }
 }
+
+/**
+ * @brief Symuluje działanie pizzerii przez jeden dzień.
+ *
+ * @param day Numer dnia.
+ */
 void simulate_day(int day) {
     log_message("---- Dzień %d ----\n", day);
 
@@ -161,7 +191,7 @@ void simulate_day(int day) {
                     kill(pid, SIGTERM);
                 }
                 unlock_semaphore();
-            }else {
+            } else {
                 perror("[Pizzeria] Błąd przy tworzeniu procesu klienta");
             }
         }

@@ -53,6 +53,9 @@ void sigchld_handler(int signo) {
     }
 }
 
+/**
+ * @brief Ustawia handlery sygnałów dla procesu pizzerii.
+ */
 void setup_signal_handlers() {
     struct sigaction sa;
 
@@ -70,6 +73,9 @@ void setup_signal_handlers() {
     log_message("[Pizzeria] Handlery sygnałów zostały poprawnie zarejestrowane.\n");
 }
 
+/**
+ * @brief Główna funkcja procesu pizzerii.
+ */
 int main() {
     setup_signal_handlers();
     initialize_logging();

@@ -7,7 +7,17 @@ import threading
 import time
 
 class PizzeriaSimulation:
+    """
+    Klasa odpowiedzialna za zarządzanie symulacją pizzerii, w tym uruchamianie, zatrzymywanie procesu
+    oraz obsługę sygnałów.
+    """
     def __init__(self, update_callback, clear_console_callback):
+        """
+        Inicjalizuje symulację pizzerii.
+
+        :param update_callback: Funkcja wywoływana do aktualizacji konsoli.
+        :param clear_console_callback: Funkcja wywoływana do czyszczenia konsoli.
+        """
         self.process = None
         self.console_output = ""
         self.initial_directory = os.getcwd()
@@ -19,6 +29,11 @@ class PizzeriaSimulation:
         self.clear_console_callback = clear_console_callback
 
     def update_console(self, text):
+        """
+        Aktualizuje zawartość konsoli.
+
+        :param text: Tekst do wyświetlenia w konsoli.
+        """
         self.console_output += text + '\n'
         self.update_callback(text)
 
@@ -27,6 +42,11 @@ class PizzeriaSimulation:
             self.update_console(f"Znaleziono PID strażaka: {self.firefighter_pid}")
 
     def follow_log_file(self, file_path):
+        """
+        Śledzi plik logów i aktualizuje konsolę o nowe wpisy.
+
+        :param file_path: Ścieżka do pliku logów.
+        """
         with open(file_path, 'r') as file:
             file.seek(0, os.SEEK_END)
             while not self.stop_thread:
@@ -37,6 +57,9 @@ class PizzeriaSimulation:
                 self.update_console(line.strip())
 
     def start_simulation(self):
+        """
+        Uruchamia symulację pizzerii.
+        """
         self.stop_simulation()
         self.console_output = ""
         self.clear_console_callback()
@@ -68,6 +91,9 @@ class PizzeriaSimulation:
             self.update_console(f"Wystąpił błąd przy uruchamianiu procesu: {str(e)}")
 
     def send_fire_signal(self):
+        """
+        Wysyła sygnał do procesu strażaka, aby zainicjować ewakuację.
+        """
         if self.firefighter_pid is not None:
             try:
                 os.kill(self.firefighter_pid, signal.SIGUSR1)
@@ -77,8 +103,10 @@ class PizzeriaSimulation:
         else:
             self.update_console("Nie znaleziono PID strażaka. Nie można wysłać sygnału.")
 
-
     def stop_simulation(self):
+        """
+        Zatrzymuje symulację pizzerii.
+        """
         if self.process is not None:
             self.process.terminate()
             self.process.wait()
@@ -92,6 +120,9 @@ class PizzeriaSimulation:
 
 
 class Application(tk.Tk):
+    """
+    Główna klasa aplikacji GUI dla symulacji pizzerii.
+    """
     def __init__(self):
         super().__init__()
 
@@ -130,6 +161,11 @@ class Application(tk.Tk):
         self.create_buttons()
 
     def update_console(self, message):
+        """
+        Aktualizuje konsolę GUI o nowy komunikat.
+
+        :param message: Wiadomość do wyświetlenia.
+        """
         self.output_text_widget.config(state=tk.NORMAL)
         self.output_text_widget.insert(tk.END, message + '\n')
         if self.simulation.auto_scroll:
@@ -137,15 +173,24 @@ class Application(tk.Tk):
         self.output_text_widget.config(state=tk.DISABLED)
 
     def clear_console(self):
+        """
+        Czyści konsolę GUI.
+        """
         self.output_text_widget.config(state=tk.NORMAL)
         self.output_text_widget.delete(1.0, tk.END)
         self.output_text_widget.config(state=tk.DISABLED)
 
     def stop_and_quit(self):
+        """
+        Zatrzymuje symulację i zamyka aplikację.
+        """
         self.simulation.stop_simulation()
         self.quit()
 
     def create_buttons(self):
+        """
+        Tworzy przyciski sterujące w GUI.
+        """
         button_bg = "white"
 
         start_button = tk.Button(self, text="Start Symulacji", command=self.simulation.start_simulation,
@@ -160,7 +205,13 @@ class Application(tk.Tk):
         self.canvas.create_window(450, 350, window=stop_button)
 
     def on_scroll(self, event):
+        """
+        Wyłącza automatyczne przewijanie, gdy użytkownik ręcznie przewija konsolę.
+
+        :param event: Wydarzenie przewijania.
+        """
         self.simulation.auto_scroll = False
+
 
 if __name__ == "__main__":
     app = Application()

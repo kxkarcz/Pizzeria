@@ -4,6 +4,11 @@
 #include "globals.h"
 #include "logging.h"
 
+/**
+ * @brief Obsługuje sygnał pożarowy i rozpoczyna ewakuację.
+ *
+ * @param signum Numer sygnału (SIGUSR1).
+ */
 static void handle_fire_signal(int signum) {
     lock_semaphore();
     if (shm_data->fire_signal) {
@@ -34,12 +39,15 @@ static void handle_fire_signal(int signum) {
     unlock_semaphore();
 }
 
+/**
+ * @brief Główna funkcja procesu strażaka.
+ */
 void firefighter_process() {
     log_message("[Strażak] Proces strażaka uruchomiony. PID: %d. Oczekuję na sygnały.\n", getpid());
     signal(SIGUSR1, handle_fire_signal);
 
     while (1) {
-        pause();
+        pause();  // Oczekiwanie na sygnały
 
         if (sem_removed) {
             log_message("[Strażak] Semafor został usunięty. Zamykam proces strażaka.\n");
@@ -67,7 +75,7 @@ void firefighter_process() {
             log_message("[Strażak] Oczekiwanie na zakończenie procesów klientów...\n");
             while (shm_data->current_clients > 0) {
                 unlock_semaphore();
-                usleep(100000);
+                usleep(100000);  // Czas oczekiwania
                 lock_semaphore();
             }
 

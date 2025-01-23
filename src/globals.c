@@ -11,12 +11,16 @@
 #include "logging.h"
 #include "pizzeria.h"
 
+// Globalne zmienne
 struct shared_data *shm_data = NULL;
 int sem_id = -1;
 volatile int sem_removed = 0;
 volatile int memory_removed = 0;
 volatile sig_atomic_t cleaning_in_progress = 0;
 
+/**
+ * @brief Czyści pamięć współdzieloną i usuwa semafory.
+ */
 void cleanup_shared_memory_and_semaphores() {
     if (cleaning_in_progress) {
         return;
@@ -59,6 +63,11 @@ void cleanup_shared_memory_and_semaphores() {
     }
 }
 
+/**
+ * @brief Obsługuje sygnały systemowe.
+ *
+ * @param signo Numer sygnału.
+ */
 void signal_handler(int signo) {
     if (lock_semaphore() == -1) {
         perror("[ERROR] Nie udało się zablokować semafora");
@@ -86,6 +95,9 @@ void signal_handler(int signo) {
     exit(0);
 }
 
+/**
+ * @brief Inicjalizuje pamięć współdzieloną i semafory.
+ */
 void setup_shared_memory_and_semaphores() {
     int shm_id = shmget(SHM_KEY, sizeof(struct shared_data), IPC_CREAT | IPC_EXCL | 0666);
     if (shm_id == -1) {
@@ -149,6 +161,11 @@ void setup_shared_memory_and_semaphores() {
     }
 }
 
+/**
+ * @brief Blokuje semafor.
+ *
+ * @return int Zwraca 0 w przypadku sukcesu, -1 w przypadku błędu.
+ */
 int lock_semaphore() {
     if (sem_removed) {
         log_message("[ERROR] Semafor został usunięty.\n");
@@ -187,6 +204,11 @@ int lock_semaphore() {
     return 0;
 }
 
+/**
+ * @brief Odblokowuje semafor.
+ *
+ * @return int Zwraca 0 w przypadku sukcesu, -1 w przypadku błędu.
+ */
 int unlock_semaphore() {
     if (sem_removed) {
         log_message("[ERROR] Próba odblokowania usuniętego semafora.\n");

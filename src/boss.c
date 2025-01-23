@@ -11,6 +11,14 @@
 
 #define MAX_QUEUE_SIZE 50
 
+/**
+ * @brief Dodaje grupę do kolejki priorytetowej.
+ *
+ * @param queue Wskaźnik na kolejkę priorytetową.
+ * @param group_size Rozmiar grupy.
+ * @param group_name Nazwa grupy.
+ * @param time_waited Czas oczekiwania grupy.
+ */
 void add_to_priority_queue(PriorityQueue* queue, int group_size, const char* group_name, int time_waited) {
     if ((queue->queue_rear + 1) % MAX_QUEUE_SIZE == queue->queue_front) {
         log_message("[Szef] Kolejka jest pełna! %s opuszcza pizzerię.\n", group_name);
@@ -27,10 +35,22 @@ void add_to_priority_queue(PriorityQueue* queue, int group_size, const char* gro
     queue->queue_rear = (queue->queue_rear + 1) % MAX_QUEUE_SIZE;
 }
 
+/**
+ * @brief Sprawdza, czy kolejka jest pusta.
+ *
+ * @param queue Wskaźnik na kolejkę priorytetową.
+ * @return int 1 jeśli kolejka jest pusta, 0 w przeciwnym wypadku.
+ */
 int is_queue_empty(PriorityQueue* queue) {
     return queue->queue_front == queue->queue_rear;
 }
 
+/**
+ * @brief Usuwa grupę z kolejki.
+ *
+ * @param queue Wskaźnik na kolejkę priorytetową.
+ * @return QueueEntry Struktura reprezentująca usuniętą grupę.
+ */
 QueueEntry remove_from_queue(PriorityQueue* queue) {
     if (queue->queue_front == queue->queue_rear) {
         errno = EINVAL;
@@ -42,6 +62,13 @@ QueueEntry remove_from_queue(PriorityQueue* queue) {
     return entry;
 }
 
+/**
+ * @brief Rezerwuje stolik dla grupy.
+ *
+ * @param group_size Rozmiar grupy.
+ * @param group_name Nazwa grupy.
+ * @return int ID zarezerwowanego stolika lub -1 w przypadku braku dostępnego stolika.
+ */
 int reserve_table_for_group(int group_size, const char* group_name) {
     int table_id = -1;
     int addable_table_id = -1;
@@ -59,7 +86,6 @@ int reserve_table_for_group(int group_size, const char* group_name) {
         // Stolik częściowo zajęty, pasujący do grupy
         if (shm_data->table_occupancy[i] > 0 &&
             shm_data->table_occupancy[i] + group_size <= table_sizes[i]) {
-            // Sprawdzamy, czy wszystkie grupy przy tym stoliku mają ten sam rozmiar
             int can_add = 1;
             for (int j = 0; j < shm_data->group_count_at_table[i]; j++) {
                 if (shm_data->group_sizes_at_table[i][j] != group_size) {
@@ -100,6 +126,13 @@ int reserve_table_for_group(int group_size, const char* group_name) {
     return table_id;
 }
 
+/**
+ * @brief Przypisuje grupę do stolika.
+ *
+ * @param table_id ID stolika.
+ * @param group_size Rozmiar grupy.
+ * @param group_name Nazwa grupy.
+ */
 void seat_group(int table_id, int group_size, const char* group_name) {
     lock_semaphore();
 
@@ -124,6 +157,12 @@ void seat_group(int table_id, int group_size, const char* group_name) {
     unlock_semaphore();
 }
 
+/**
+ * @brief Obsługuje zamówienie grupy.
+ *
+ * @param group_size Rozmiar grupy.
+ * @param group_name Nazwa grupy.
+ */
 void process_order(int group_size, const char* group_name) {
     Pizza selected_pizzas[group_size];
     int selected_sizes[group_size];
@@ -142,6 +181,11 @@ void process_order(int group_size, const char* group_name) {
     update_sales_and_earnings(selected_pizzas, selected_sizes, group_size);
 }
 
+/**
+ * @brief Obsługuje wejście z kolejki.
+ *
+ * @param entry Struktura reprezentująca grupę w kolejce.
+ */
 static void handle_queue_entry(QueueEntry entry) {
     int table_id = reserve_table_for_group(entry.group_size, entry.group_name);
 
@@ -155,9 +199,11 @@ static void handle_queue_entry(QueueEntry entry) {
     log_message("[Szef] Zamówienie dla %s zostało przyjęte.\n", entry.group_name);
 
     seat_group(table_id, entry.group_size, entry.group_name);
-
 }
 
+/**
+ * @brief Obsługuje kolejkę priorytetową grup.
+ */
 void handle_queue() {
     while (1) {
         lock_semaphore();
@@ -175,6 +221,13 @@ void handle_queue() {
     }
 }
 
+/**
+ * @brief Aktualizuje statystyki sprzedaży i zysków.
+ *
+ * @param selected_pizzas Tablica wybranych pizz.
+ * @param selected_sizes Tablica rozmiarów pizz.
+ * @param group_size Rozmiar grupy.
+ */
 void update_sales_and_earnings(Pizza *selected_pizzas, int *selected_sizes, int group_size) {
     int small_sales[5] = {0};
     int large_sales[5] = {0};

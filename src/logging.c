@@ -9,6 +9,9 @@
 
 static int log_file_fd = -1;
 
+/**
+ * @brief Inicjalizuje system logowania, otwierając plik logów.
+ */
 void initialize_logging() {
     log_file_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (log_file_fd == -1) {
@@ -17,6 +20,12 @@ void initialize_logging() {
     }
 }
 
+/**
+ * @brief Zapisuje wiadomość do logów i wyświetla ją w konsoli.
+ *
+ * @param format Format wiadomości (podobny do printf).
+ * @param ... Argumenty do formatu wiadomości.
+ */
 void log_message(const char* format, ...) {
     va_list args;
     char buffer[1024];
@@ -41,6 +50,9 @@ void log_message(const char* format, ...) {
     }
 }
 
+/**
+ * @brief Zamyka system logowania, zamykając plik logów.
+ */
 void close_log() {
     if (log_file_fd != -1) {
         close(log_file_fd);

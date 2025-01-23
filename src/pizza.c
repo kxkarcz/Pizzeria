@@ -4,10 +4,15 @@
 #include <time.h>
 #include <stdio.h>
 
+// Tablica przechowująca menu pizzerii
 Pizza menu[MAX_PIZZAS];
 int menu_size;
 
+/**
+ * @brief Inicjalizuje menu pizzerii.
+ */
 void initialize_menu() {
+    // Dodawanie pozycji do menu
     strncpy(menu[0].name, "Margharitta", sizeof(menu[0].name) - 1);
     menu[0].name[sizeof(menu[0].name) - 1] = '\0';
     menu[0].small_price = 20.0;
@@ -43,6 +48,13 @@ void initialize_menu() {
     srand(time(NULL)); // Jednorazowa inicjalizacja generatora liczb losowych
 }
 
+/**
+ * @brief Losowo wybiera pizze dla grupy klientów.
+ *
+ * @param group_size Liczba osób w grupie.
+ * @param selected_pizzas Tablica przechowująca wybrane pizze.
+ * @param selected_sizes Tablica przechowująca rozmiary wybranych pizz (0 - mała, 1 - duża).
+ */
 void select_random_pizzas(int group_size, Pizza* selected_pizzas, int* selected_sizes) {
     for (int i = 0; i < group_size; i++) {
         int pizza_index = rand() % menu_size;
@@ -51,6 +63,14 @@ void select_random_pizzas(int group_size, Pizza* selected_pizzas, int* selected_
     }
 }
 
+/**
+ * @brief Oblicza całkowity koszt zamówienia.
+ *
+ * @param selected_pizzas Tablica wybranych pizz.
+ * @param selected_sizes Tablica rozmiarów pizz (0 - mała, 1 - duża).
+ * @param group_size Liczba osób w grupie.
+ * @return double Całkowity koszt zamówienia.
+ */
 double calculate_total_cost(Pizza* selected_pizzas, int* selected_sizes, int group_size) {
     double total_cost = 0.0;
     for (int i = 0; i < group_size; i++) {

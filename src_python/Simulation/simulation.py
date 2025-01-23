@@ -27,6 +27,7 @@ class PizzeriaSimulation:
         self.log_thread = None
         self.update_callback = update_callback
         self.clear_console_callback = clear_console_callback
+        self.is_running = False
 
     def update_console(self, text):
         """
@@ -60,6 +61,10 @@ class PizzeriaSimulation:
         """
         Uruchamia symulację pizzerii.
         """
+        if self.is_running:
+            self.update_console("Symulacja już jest uruchomiona.")
+            return
+
         self.stop_simulation()
         self.console_output = ""
         self.clear_console_callback()
@@ -86,6 +91,7 @@ class PizzeriaSimulation:
             self.stop_thread = False
             self.log_thread = threading.Thread(target=self.follow_log_file, args=(os.path.join(executable_dir, "logs.txt"),))
             self.log_thread.start()
+            self.is_running = True
             self.update_console("Symulacja uruchomiona...")
         except Exception as e:
             self.update_console(f"Wystąpił błąd przy uruchamianiu procesu: {str(e)}")
@@ -116,6 +122,7 @@ class PizzeriaSimulation:
         if self.log_thread and self.log_thread.is_alive():
             self.log_thread.join()
         self.log_thread = None
+        self.is_running = False
         self.update_console("Symulacja zakończona.")
 
 
